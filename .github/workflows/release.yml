@@ -1,0 +1,180 @@
+name: Release on main
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  # === ШАГ 1: ПОДГОТОВКА И СОЗДАНИЕ РЕЛИЗА ===
+  prepare_release:
+    runs-on: ubuntu-latest
+    outputs:
+      exists: ${{ steps.tagcheck.outputs.exists }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Read current version
+        id: version
+        # Путь к version.py указан с учетом твоей структуры
+        run: |
+          VERSION=$(python -c "import re; print(re.search(r'__version__\s*=\s*[\"\x27]([^\"\x27]+)[\"\x27]', open('src/core/version.py', encoding='utf-8').read()).group(1))")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Check whether this version was already released
+        id: tagcheck
+        run: |
+          git fetch --tags
+          if git rev-parse "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Extract CHANGELOG section
+        if: steps.tagcheck.outputs.exists == 'false'
+        run: |
+          python - <<'PY'
+          import re
+          version = "${{ steps.version.outputs.version }}"
+          try:
+              text = open("CHANGELOG.md", encoding="utf-8").read()
+          except OSError:
+              text = ""
+          pattern = rf"^##\s*{re.escape(version)}\s*$\n(.*?)(?=^##\s|\Z)"
+          m = re.search(pattern, text, re.DOTALL | re.MULTILINE)
+          notes = m.group(1).strip() if m else f"Release {version}."
+          with open("release_notes.md", "w", encoding="utf-8") as f:
+              f.write(notes + "\n")
+          PY
+
+      - name: Create and push tag
+        if: steps.tagcheck.outputs.exists == 'false'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ steps.version.outputs.tag }}" -m "Release ${{ steps.version.outputs.tag }}"
+          git push origin "${{ steps.version.outputs.tag }}"
+
+      - name: Create GitHub Release
+        if: steps.tagcheck.outputs.exists == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
+          body_path: release_notes.md
+
+      - name: Update public version beacon (gist)
+        # Репозиторий приватный - анонимная проверка обновлений из самого
+        # приложения не может его читать (GitHub требует авторизацию).
+        # Вместо этого приложение читает публичный Gist с одним файлом
+        # latest.json (см. src/core/network/updater.py, VERSION_GIST_ID
+        # в src/core/version.py) - здесь он обновляется новым тегом.
+        # Пропускается, если секреты не настроены, чтобы не ломать релиз.
+        if: steps.tagcheck.outputs.exists == 'false'
+        env:
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+          GIST_ID: ${{ secrets.VERSION_GIST_ID }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ -z "$GIST_TOKEN" ] || [ -z "$GIST_ID" ]; then
+            echo "GIST_TOKEN/VERSION_GIST_ID не заданы в секретах репозитория - пропускаю обновление маячка версии."
+            exit 0
+          fi
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          tag = os.environ["RELEASE_TAG"]
+          html_url = f"https://github.com/{os.environ['REPO']}/releases/tag/{tag}"
+          body = json.dumps({
+              "files": {"latest.json": {"content": json.dumps({"tag": tag, "html_url": html_url})}}
+          }).encode("utf-8")
+
+          req = urllib.request.Request(
+              f"https://api.github.com/gists/{os.environ['GIST_ID']}",
+              data=body,
+              method="PATCH",
+              headers={
+                  "Authorization": f"token {os.environ['GIST_TOKEN']}",
+                  "Accept": "application/vnd.github+json",
+                  "Content-Type": "application/json",
+              },
+          )
+          with urllib.request.urlopen(req, timeout=10) as resp:
+              print(f"Gist обновлён, статус {resp.status}")
+          PY
+
+  # === ШАГ 2: СБОРКА БИНАРНИКОВ (EXE, APP, ELF) ===
+  build_binaries:
+    needs: prepare_release
+    if: needs.prepare_release.outputs.exists == 'false'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install system Tk (tkinter is part of the app, not pip-installable)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-tk
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build with PyInstaller (Windows)
+        if: runner.os == 'Windows'
+        # Заметь: разделитель папок на Windows - точка с запятой (;)
+        run: pyinstaller --noconfirm --onefile --windowed --icon="assets/1.png" --add-data "assets;assets" --name "Rule34_Artist_Finder" main.py
+
+      - name: Build with PyInstaller (Linux/macOS)
+        if: runner.os != 'Windows'
+        # На Linux/Mac - разделитель двоеточие (:)
+        run: pyinstaller --noconfirm --onefile --windowed --icon="assets/1.png" --add-data "assets:assets" --name "Rule34_Artist_Finder" main.py
+
+      - name: Prepare Assets (Rename and Zip)
+        shell: bash
+        run: |
+          cd dist
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            mv Rule34_Artist_Finder.exe Rule34_Artist_Finder-Windows.exe
+          elif [ "${{ runner.os }}" = "macOS" ]; then
+            zip -r Rule34_Artist_Finder-macOS.zip Rule34_Artist_Finder.app
+          else
+            mv Rule34_Artist_Finder Rule34_Artist_Finder-Linux
+          fi
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare_release.outputs.tag }}
+          files: dist/Rule34_Artist_Finder-*
