@@ -6,6 +6,9 @@
 
 A multi-threaded desktop application in Python (Tkinter) for smart search, analysis, and mass downloading of art from Booru platforms.
 
+> [!IMPORTANT]
+> Most booru tools (imgbrd-grabber, DanbooruDownloader, etc.) are built around one thing: download by tag. This one asks a different question — **which artists actually draw the most under a given tag** — and once you've found them, lets you queue them up and download their stuff in bulk. It's not trying to replace the big multi-site downloaders (they cover way more sites); this is specifically for artist discovery.
+
 ## 🌟 Key Features
 
 * **Smart Artist Search**: Scans thousands of posts using your tags and finds the artists who draw most frequently in that specific genre.
