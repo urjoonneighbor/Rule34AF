@@ -2,6 +2,7 @@ import threading
 import webbrowser
 from tkinter import messagebox
 
+from src.core.download import queue_store
 from src.core.network.updater import check_for_updates_async
 
 
@@ -66,7 +67,49 @@ class StartupMixin:
         import threading
         threading.Thread(target=worker, daemon=True).start()
 
+    def _pending_download_files(self) -> int:
+        """Сколько файлов осталось скачать: задача в работе плюс очередь."""
+        tasks = []
+        current = getattr(self, "current_download_task", None)
+        if current:
+            tasks.append(current)
+        tasks.extend(getattr(self, "download_queue", []))
+        return queue_store.count_files(tasks)
+
+    def check_unfinished_downloads(self):
+        """Спрашивает при запуске, продолжать ли скачивание, прерванное в
+        прошлый раз. Вызывается уже после отрисовки интерфейса (см.
+        Rule34ArtistFinderApp.__init__), чтобы диалог не опередил окно."""
+        tasks = queue_store.load_queue()
+        if not tasks:
+            return
+
+        files_left = queue_store.count_files(tasks)
+        if messagebox.askyesno(
+            self.tr("msg_resume_dl_title"),
+            self.tr("msg_resume_dl_prompt").format(files_left, len(tasks)),
+        ):
+            self.downloader.resume_saved_queue(tasks)
+        else:
+            queue_store.clear_queue()
+            self.log(self.tr("log_dl_resume_declined"))
+
     def on_closing(self):
+        # Скачивание в процессе - предупреждаем и даём передумать. Само
+        # состояние очереди сохраняем до destroy(): поток скачивания
+        # daemon-овый, после выхода из mainloop он может не успеть
+        # доработать свой finally.
+        pending = self._pending_download_files()
+        if (self.is_downloading or pending) and not messagebox.askyesno(
+            self.tr("msg_exit_dl_title"),
+            self.tr("msg_exit_dl_prompt").format(pending),
+        ):
+            return
+
+        self.is_closing = True
+        if pending:
+            self.downloader._persist_queue()
+
         if self.is_searching or self.is_downloading or getattr(self, "is_prompting_dl", False): self.stop_event.set()
         if hasattr(self, "tab_gallery"):
             self.tab_gallery.gal_stop_thumb_thread.set()

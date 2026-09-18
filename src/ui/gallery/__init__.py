@@ -11,7 +11,7 @@ class GalleryTab(GridMixin, ViewerMixin, ttk.Frame):
     пагинацией (GridMixin, grid.py) и полноэкранный просмотрщик с зумом
     (ViewerMixin, viewer.py)."""
 
-    def __init__(self, notebook, app, initial_dir="", initial_positions=None):
+    def __init__(self, notebook, app, initial_dir="", initial_positions=None, initial_solo_only=False):
         super().__init__(notebook)
         self.viewer_img_id = None
         self.app = app
@@ -41,6 +41,13 @@ class GalleryTab(GridMixin, ViewerMixin, ttk.Frame):
 
         self.gal_local_tags: set[str] = set()
         self.gal_auto_timer = None
+
+        # "Только сольные": прячет файлы, на которых кроме текущего автора
+        # висит тег другого известного автора (коллаборации). Известные авторы
+        # берутся локально - из папок галереи и истории поисков, см.
+        # _get_other_artist_names() в grid.py.
+        self.gal_solo_only_var = tk.BooleanVar(value=bool(initial_solo_only))
+        self.chk_gal_solo_only = None
 
         self.btn_gal_load = None
         self.btn_gal_recover = None

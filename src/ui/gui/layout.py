@@ -266,6 +266,7 @@ class LayoutMixin:
             self.notebook, self,
             getattr(self, "gal_base_dir", ""),
             getattr(self, "gal_artist_positions", {}),
+            getattr(self, "gal_solo_only", False),
         )
         self.notebook.add(self.tab_gallery, text="")
 

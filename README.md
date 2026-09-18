@@ -32,6 +32,7 @@ rule34_project/
 ├── README.md                   # English documentation
 ├── doc/README_ru.md            # Russian documentation
 ├── CHANGELOG.md                 # Version history
+├── doc/CHANGELOG_ru.md          # Version history (Russian)
 ├── requirements.txt             # Python dependencies
 ├── assets/
 │   └── 1.png                   # Application icon

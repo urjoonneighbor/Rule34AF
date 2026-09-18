@@ -31,7 +31,8 @@ rule34_project/
 ├── main.py                     # Точка входа в приложение
 ├── README.md                   # Документация на английском
 ├── doc/README_ru.md            # Документация на русском
-├── CHANGELOG.md                 # История версий
+├── CHANGELOG.md                 # История версий (на английском)
+├── doc/CHANGELOG_ru.md          # История версий (на русском)
 ├── requirements.txt              # Зависимости Python
 ├── assets/
 │   └── 1.png                   # Иконка приложения
