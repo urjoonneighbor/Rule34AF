@@ -33,7 +33,7 @@ rule34_project/
 ├── doc/README_ru.md            # Russian documentation
 ├── CHANGELOG.md                 # Version history
 ├── doc/CHANGELOG_ru.md          # Version history (Russian)
-├── requirements.txt             # Python dependencies
+├── pyproject.toml               # Python dependencies (PEP 621)
 ├── assets/
 │   └── 1.png                   # Application icon
 └── src/
@@ -59,10 +59,10 @@ rule34_project/
 
 ## 🛠 Installation & Run (For Developers)
 
-1. Ensure you have **Python 3.8+** installed.
+1. Ensure you have **Python 3.10+** installed.
 2. Clone the repository and install dependencies:
    ```bash
-   pip install -r requirements.txt
+   pip install .
    ```
 3. Run the application:
    ```bash
@@ -71,7 +71,11 @@ rule34_project/
 
 ### Optional dependencies (encrypted credential storage)
 
-`requirements.txt` includes `keyring` and `cryptography` as they are needed for real encryption of your API keys/User IDs (see "Encrypted credential storage" above). If, for some reason, you don't want them installed, the app still works — it just falls back to the old base64 encoding for credentials and logs a warning that this is not real protection.
+The `secure-storage` extra (`keyring` + `cryptography`) is needed for real encryption of your API keys/User IDs (see "Encrypted credential storage" above):
+```bash
+pip install ".[secure-storage]"
+```
+If, for some reason, you don't want them installed, the app still works with a plain `pip install .` — it just falls back to the old base64 encoding for credentials and logs a warning that this is not real protection.
 
 ## 📁 Where your data is stored
 
