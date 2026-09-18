@@ -69,55 +69,16 @@ jobs:
           git push origin "${{ steps.version.outputs.tag }}"
 
       - name: Create GitHub Release
+        # Репозиторий публичный - приложение само проверяет обновления
+        # через api.github.com/repos/.../releases/latest (см.
+        # src/core/network/updater.py), поэтому отдельный "маячок версии"
+        # (публичный Gist) больше не нужен.
         if: steps.tagcheck.outputs.exists == 'false'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: ${{ steps.version.outputs.tag }}
           body_path: release_notes.md
-
-      - name: Update public version beacon (gist)
-        # Репозиторий приватный - анонимная проверка обновлений из самого
-        # приложения не может его читать (GitHub требует авторизацию).
-        # Вместо этого приложение читает публичный Gist с одним файлом
-        # latest.json (см. src/core/network/updater.py, VERSION_GIST_ID
-        # в src/core/version.py) - здесь он обновляется новым тегом.
-        # Пропускается, если секреты не настроены, чтобы не ломать релиз.
-        if: steps.tagcheck.outputs.exists == 'false'
-        env:
-          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
-          GIST_ID: ${{ secrets.VERSION_GIST_ID }}
-          RELEASE_TAG: ${{ steps.version.outputs.tag }}
-          REPO: ${{ github.repository }}
-        run: |
-          if [ -z "$GIST_TOKEN" ] || [ -z "$GIST_ID" ]; then
-            echo "GIST_TOKEN/VERSION_GIST_ID не заданы в секретах репозитория - пропускаю обновление маячка версии."
-            exit 0
-          fi
-          python - <<'PY'
-          import json
-          import os
-          import urllib.request
-
-          tag = os.environ["RELEASE_TAG"]
-          html_url = f"https://github.com/{os.environ['REPO']}/releases/tag/{tag}"
-          body = json.dumps({
-              "files": {"latest.json": {"content": json.dumps({"tag": tag, "html_url": html_url})}}
-          }).encode("utf-8")
-
-          req = urllib.request.Request(
-              f"https://api.github.com/gists/{os.environ['GIST_ID']}",
-              data=body,
-              method="PATCH",
-              headers={
-                  "Authorization": f"token {os.environ['GIST_TOKEN']}",
-                  "Accept": "application/vnd.github+json",
-                  "Content-Type": "application/json",
-              },
-          )
-          with urllib.request.urlopen(req, timeout=10) as resp:
-              print(f"Gist обновлён, статус {resp.status}")
-          PY
 
   # === ШАГ 2: СБОРКА БИНАРНИКОВ (EXE, APP, ELF) ===
   build_binaries:
@@ -148,7 +109,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install ".[secure-storage]"
           pip install pyinstaller
 
       - name: Build with PyInstaller (Windows)
