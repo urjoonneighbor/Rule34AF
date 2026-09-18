@@ -1,6 +1,4 @@
 *.txt
-!requirements.txt
 *.dat
 __pycache__/
 .pytest_cache/
-"Claude outputs/" 

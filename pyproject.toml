@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rule34-artist-finder"
+description = "Desktop app that finds which artists post most under a given booru tag, then bulk-downloads their art"
+readme = "README.md"
+requires-python = ">=3.10"
+dynamic = ["version"]
+
+dependencies = [
+    "cloudscraper",
+    "requests",
+    "Pillow",
+]
+
+[project.optional-dependencies]
+# Настоящее шифрование сохранённых API-ключей/User ID через OS keychain +
+# Fernet. Без них приложение работает, но откатывается на обычное
+# base64-кодирование (см. README - "Encrypted credential storage").
+secure-storage = [
+    "keyring",
+    "cryptography",
+]
+dev = [
+    "pytest",
+]
+
+# tkinter - часть стандартной библиотеки Python и не устанавливается через
+# pip (на некоторых Linux-дистрибутивах может требовать отдельного
+# системного пакета, например python3-tk - см. README).
+
+[tool.setuptools.dynamic]
+version = { attr = "src.core.version.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+namespaces = true
