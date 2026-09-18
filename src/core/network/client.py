@@ -1,3 +1,4 @@
+import os
 import time
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -80,6 +81,11 @@ class Rule34API:
 
     def download_file(self, url, filepath):
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        # Качаем во временный файл рядом и переименовываем только после
+        # полной и успешной загрузки. Иначе оборванное скачивание (закрыли
+        # программу, упала сеть) оставляло бы обрезанный файл под нормальным
+        # именем - и он навсегда считался бы скачанным.
+        temp_path = filepath + ".part"
         for attempt in range(4):
             try:
                 resp = self.scraper.get(url, stream=True, timeout=20, headers=headers)
@@ -87,7 +93,7 @@ class Rule34API:
                     expected_size = int(resp.headers.get("Content-Length", 0))
                     downloaded_size = 0
 
-                    with open(filepath, 'wb') as f:
+                    with open(temp_path, 'wb') as f:
                         for chunk in resp.iter_content(1024 * 8):
                             if chunk:
                                 f.write(chunk)
@@ -97,12 +103,20 @@ class Rule34API:
                         time.sleep(1)
                         continue
 
+                    os.replace(temp_path, filepath)
                     return True
                 elif resp.status_code in (429, 403):
                     time.sleep(1.5)
             except Exception as e:
                 applog.debug(f"Попытка скачивания {url} не удалась: {e}")
                 time.sleep(1)
+
+        # Все попытки исчерпаны - недокачанный огрызок за собой убираем.
+        try:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+        except OSError as e:
+            applog.debug(f"Не удалось удалить временный файл {temp_path}: {e}")
         return False
 
     @staticmethod

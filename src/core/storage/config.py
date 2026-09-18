@@ -131,6 +131,12 @@ class ConfigManager:
                 if getattr(self.app, "tab_gallery", None):
                     self.app.tab_gallery.gal_artist_positions = self.app.gal_artist_positions
 
+                # Фильтр галереи "только сольные" - подхватывается конструктором
+                # GalleryTab так же, как gal_artist_positions выше.
+                self.app.gal_solo_only = bool(data.get("gal_solo_only", False))
+                if getattr(self.app, "tab_gallery", None):
+                    self.app.tab_gallery.gal_solo_only_var.set(self.app.gal_solo_only)
+
                 self.app.current_lang = str(data.get("language", "ru"))
                 self.app.current_theme = str(data.get("theme", "dark"))
 
@@ -210,6 +216,19 @@ class ConfigManager:
             except Exception as e:
                 applog.debug(f"Не удалось применить настройки прокси: {e}")
 
+    def _get_gallery_solo_only(self) -> bool:
+        """Состояние фильтра "только сольные". Источник истины - сама вкладка
+        галереи (пользователь мог переключить фильтр уже после старта), но до
+        её создания берём то, что прочитали из настроек."""
+        tab = getattr(self.app, "tab_gallery", None)
+        var = getattr(tab, "gal_solo_only_var", None) if tab is not None else None
+        if var is not None:
+            try:
+                return bool(var.get())
+            except Exception:
+                pass
+        return bool(getattr(self.app, "gal_solo_only", False))
+
     def save_settings(self) -> None:
         # Синхронизируем текущий выбранный сайт в общий словарь учётных данных
         # перед сохранением (аналогично тому, что делает on_site_change).
@@ -248,6 +267,7 @@ class ConfigManager:
                 getattr(self.app, "tab_gallery", None), "gal_artist_positions",
                 getattr(self.app, "gal_artist_positions", {}),
             ),
+            "gal_solo_only": self._get_gallery_solo_only(),
             "language": getattr(self.app, "current_lang", "ru"),
             "theme": getattr(self.app, "current_theme", "dark"),
 

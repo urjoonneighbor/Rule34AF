@@ -106,6 +106,33 @@ class ViewerMixin:
         self.resize_timer = None
         self.viewer_img_id = None
 
+        def show_toast(text: str):
+            """Короткое сообщение поверх картинки. Раньше результат копирования
+            показывался в заголовке окна, но в полноэкранном режиме заголовка
+            не видно вообще - поэтому подтверждение рисуется на самом холсте."""
+            if not self.viewer_canvas.winfo_exists(): return
+
+            self.viewer_canvas.delete("toast")
+            w = self.viewer_canvas.winfo_width()
+            text_id = self.viewer_canvas.create_text(
+                w // 2, 32, text=text, fill="white", justify=tk.CENTER,
+                font=("Segoe UI", 12, "bold"), tags="toast"
+            )
+
+            bbox = self.viewer_canvas.bbox(text_id)
+            if bbox:
+                pad = 10
+                bg_id = self.viewer_canvas.create_rectangle(
+                    bbox[0] - pad, bbox[1] - pad, bbox[2] + pad, bbox[3] + pad,
+                    fill="#1e1e1e", outline="#555555", tags="toast"
+                )
+                self.viewer_canvas.tag_lower(bg_id, text_id)
+
+            self.viewer_canvas.after(
+                2500,
+                lambda: self.viewer_canvas.delete("toast") if self.viewer_canvas.winfo_exists() else None
+            )
+
         def draw_image(fast: bool = False):
             if not getattr(self, "current_viewer_img", None): return
             if not self.viewer_canvas.winfo_exists(): return
@@ -248,12 +275,19 @@ class ViewerMixin:
             self.viewer_canvas.coords(self.viewer_img_id, w // 2 + self.v_pan_x, h // 2 + self.v_pan_y)
 
         def copy_image(_event=None):
-            if not getattr(self, "current_viewer_img", None): return
+            if not getattr(self, "current_viewer_img", None):
+                # Видео или картинка, которая не открылась - копировать нечего.
+                # Раньше здесь просто ничего не происходило, без объяснений.
+                applog.debug("Копирование в буфер обмена: текущий файл не изображение, копировать нечего.")
+                show_toast(self.app.tr("gal_toast_nothing"))
+                return
+
             filepath = self.gal_filtered_files[self.viewer_idx]
             filepath_abs = os.path.abspath(filepath)
 
             success = False
             import sys
+            import time
             import subprocess  # Вынесли импорт сюда, чтобы он был доступен во всех блоках
 
             if sys.platform == "win32":
@@ -268,6 +302,7 @@ class ViewerMixin:
                     global_alloc = getattr(kernel32, "GlobalAlloc")
                     global_lock = getattr(kernel32, "GlobalLock")
                     global_unlock = getattr(kernel32, "GlobalUnlock")
+                    global_free = getattr(kernel32, "GlobalFree")
                     open_cb = getattr(user32, "OpenClipboard")
                     empty_cb = getattr(user32, "EmptyClipboard")
                     set_cb_data = getattr(user32, "SetClipboardData")
@@ -279,6 +314,8 @@ class ViewerMixin:
                     global_lock.restype = wintypes.LPVOID
                     global_unlock.argtypes = [wintypes.HGLOBAL]
                     global_unlock.restype = wintypes.BOOL
+                    global_free.argtypes = [wintypes.HGLOBAL]
+                    global_free.restype = wintypes.HGLOBAL
 
                     open_cb.argtypes = [wintypes.HWND]
                     open_cb.restype = wintypes.BOOL
@@ -298,17 +335,48 @@ class ViewerMixin:
                     gmem_moveable = 0x0002
 
                     h_global_mem = global_alloc(gmem_moveable, len(data))
-                    if h_global_mem:
+                    if not h_global_mem:
+                        applog.debug("Копирование в буфер обмена: GlobalAlloc не выделил память под картинку.")
+                    else:
                         lp_global_mem = global_lock(h_global_mem)
-                        if lp_global_mem:
+                        if not lp_global_mem:
+                            applog.debug("Копирование в буфер обмена: GlobalLock не отдал указатель на память.")
+                            global_free(h_global_mem)
+                        else:
                             ctypes.memmove(lp_global_mem, data, len(data))
                             global_unlock(h_global_mem)
 
-                            if open_cb(0):
+                            # Буфер обмена - разделяемый ресурс на всю систему, и в
+                            # момент запроса его вполне может держать открытым другое
+                            # приложение (менеджеры буфера обмена, Punto Switcher,
+                            # история буфера Windows). Тогда OpenClipboard просто
+                            # возвращает 0 - раньше копирование в этом случае молча
+                            # не срабатывало. Поэтому даём несколько коротких попыток.
+                            opened = False
+                            for _attempt in range(10):
+                                if open_cb(0):
+                                    opened = True
+                                    break
+                                time.sleep(0.05)
+
+                            if not opened:
+                                applog.debug("Копирование в буфер обмена: не удалось открыть буфер, "
+                                             "его удерживает другое приложение.")
+                                global_free(h_global_mem)
+                            else:
                                 empty_cb()
-                                set_cb_data(cf_dib, h_global_mem)
+                                handle = set_cb_data(cf_dib, h_global_mem)
+                                last_error = 0 if handle else ctypes.GetLastError()
                                 close_cb()
-                                success = True
+
+                                if handle:
+                                    # Память с картинкой теперь принадлежит системе -
+                                    # освобождать её самим нельзя.
+                                    success = True
+                                else:
+                                    applog.debug("Копирование в буфер обмена: SetClipboardData не принял "
+                                                 f"данные (GetLastError={last_error}).")
+                                    global_free(h_global_mem)
                 except (OSError, AttributeError, TypeError, ValueError, ImportError) as e:
                     applog.debug(f"Не удалось скопировать изображение через Windows Clipboard API: {e}")
 
@@ -333,16 +401,14 @@ class ViewerMixin:
                     applog.debug(f"Не удалось скопировать изображение через xclip: {e}")
 
             if self.viewer_window and self.viewer_window.winfo_exists():
-                current_title = self.viewer_window.title().split(" - [")[0]
                 if success:
-                    self.viewer_window.title(f"{current_title}{self.app.tr('gal_title_copied')}")
+                    applog.debug("Картинка скопирована в буфер обмена.")
+                    show_toast(self.app.tr("gal_toast_copied"))
                 else:
+                    # Картинку скопировать не вышло - кладём хотя бы путь к файлу.
                     self.app.clipboard_clear()
                     self.app.clipboard_append(filepath)
-                    self.viewer_window.title(f"{current_title}{self.app.tr('gal_title_copied_path')}")
-
-                self.viewer_window.after(2000, lambda: self.viewer_window.title(
-                    current_title) if self.viewer_window and self.viewer_window.winfo_exists() else None)
+                    show_toast(self.app.tr("gal_toast_copied_path"))
 
         def on_viewer_ctrl_key(event):
             key = event.keysym.lower() if event.keysym else ""
@@ -439,6 +505,12 @@ class ViewerMixin:
                     self.viewer_window.attributes("-fullscreen", False)
                 if self._viewer_geom_before_fullscreen:
                     self.viewer_window.geometry(self._viewer_geom_before_fullscreen)
+
+            # Окно без рамки (overrideredirect) не управляется оконным менеджером и
+            # легко теряет фокус клавиатуры - без этого после F11 переставали
+            # работать стрелки, Escape и Ctrl+C (копирование картинки).
+            self.viewer_window.lift()
+            self.viewer_window.focus_force()
 
         def on_key(event):
             if event.keysym == 'Right':

@@ -9,6 +9,7 @@ import tkinter as tk
 
 from PIL import Image, ImageTk
 
+from src.core import applog
 from src.core.download.metadata_store import get_file_md5, load_artist_metadata, save_artist_metadata
 from src.core.media_types import ALLOWED_EXTENSIONS
 
@@ -43,6 +44,10 @@ class GridMixin:
         self.entry_gal_search.bind("<KeyRelease>", self.on_gal_search_key)
         self.btn_gal_search = ttk.Button(search_frame, command=self.on_gal_search)
         self.btn_gal_search.pack(side=tk.LEFT)
+
+        self.chk_gal_solo_only = ttk.Checkbutton(search_frame, variable=self.gal_solo_only_var,
+                                                 command=self.on_gal_solo_only_toggle, state=tk.DISABLED)
+        self.chk_gal_solo_only.pack(side=tk.LEFT, padx=(10, 0))
 
         self.gal_auto_frame = ttk.Frame(gal_right)
         self.gal_listbox_auto = tk.Listbox(self.gal_auto_frame, height=5, font=self.app.font_main)
@@ -96,6 +101,8 @@ class GridMixin:
         self.btn_gal_recover.config(text=self.app.tr("gal_btn_recover"))
         self.lbl_gal_search.config(text=self.app.tr("gal_search_hint"))
         self.btn_gal_search.config(text=self.app.tr("gal_btn_search"))
+        if self.chk_gal_solo_only is not None:
+            self.chk_gal_solo_only.config(text=self.app.tr("gal_solo_only"))
         self.btn_gal_prev.config(text=self.app.tr("gal_prev"))
         self.btn_gal_next.config(text=self.app.tr("gal_next"))
 
@@ -292,12 +299,49 @@ class GridMixin:
         # в прошлый раз (см. gal_artist_positions), а не всегда с первой.
         self.on_gal_search(reset_page=False)
 
-    def on_gal_search(self, reset_page=True):
-        if not self.gal_current_artist: return
+    def _get_other_artist_names(self) -> set[str]:
+        """Имена всех известных приложению авторов, КРОМЕ текущего, в нижнем
+        регистре. По ним фильтр "только сольные" понимает, что в работе
+        участвовал кто-то ещё.
 
-        artist_dir = os.path.join(self.gal_base_dir, self.gal_current_artist)
+        Считается полностью локально, без запросов к сайту: в metadata.dat
+        теги файла лежат одним списком, без категорий, а категорию тега ни
+        один движок не отдаёт вместе с постом - узнать "автор ли это" можно
+        только отдельным запросом на каждый тег. Поэтому за список авторов
+        берём то, что приложение и так уже знает: папки скачанных авторов,
+        историю поисков и авторов с выставленными оценками."""
+        names = set()
+
+        if self.gal_base_dir:
+            try:
+                for entry in os.listdir(self.gal_base_dir):
+                    if os.path.isdir(os.path.join(self.gal_base_dir, entry)):
+                        names.add(entry.strip().lower())
+            except OSError:
+                pass
+
+        for items in getattr(self.app, "grouped_history_data", {}).values():
+            for item in items:
+                name = str(item.get("artist", "")).strip().lower()
+                if name:
+                    names.add(name)
+
+        for marked in getattr(self.app, "artist_marks", {}):
+            name = str(marked).strip().lower()
+            if name:
+                names.add(name)
+
+        names.discard(str(self.gal_current_artist).strip().lower())
+        return names
+
+    def on_gal_solo_only_toggle(self):
+        self.on_gal_search()
+        if hasattr(self.app, "save_settings"):
+            self.app.save_settings()
+
+    def _parse_gal_query_tags(self) -> tuple[set[str], set[str]]:
+        """Разбирает строку поиска галереи на теги "включить"/"исключить"."""
         search_query = self.gal_search_var.get().strip().lower()
-
         include_tags = set()
         exclude_tags = set()
         if search_query:
@@ -306,6 +350,31 @@ class GridMixin:
                     exclude_tags.add(tag[1:])
                 else:
                     include_tags.add(tag)
+        return include_tags, exclude_tags
+
+    def _update_solo_only_availability(self, include_tags: set[str], exclude_tags: set[str]):
+        """Флажок "только сольные" имеет смысл, только если в введённом
+        фильтре есть тег какого-то автора - иначе фильтровать коллаборации
+        не от кого. Пока такого тега нет, флажок недоступен и снимается,
+        если был включён."""
+        if self.chk_gal_solo_only is None:
+            return
+
+        known_artists = self._get_other_artist_names()
+        if self.gal_current_artist:
+            known_artists = known_artists | {str(self.gal_current_artist).strip().lower()}
+
+        available = bool((include_tags | exclude_tags) & known_artists)
+        self.chk_gal_solo_only.config(state=tk.NORMAL if available else tk.DISABLED)
+        if not available and self.gal_solo_only_var.get():
+            self.gal_solo_only_var.set(False)
+
+    def on_gal_search(self, reset_page=False):
+        if not self.gal_current_artist: return
+
+        artist_dir = os.path.join(self.gal_base_dir, self.gal_current_artist)
+        include_tags, exclude_tags = self._parse_gal_query_tags()
+        self._update_solo_only_availability(include_tags, exclude_tags)
 
         self.gal_stop_thumb_thread.set()
         self.gal_filtered_files = []
@@ -313,14 +382,33 @@ class GridMixin:
 
         meta_lower_keys = {k.lower(): v.lower() for k, v in self.gal_artist_meta.items()}
 
+        solo_only = bool(self.gal_solo_only_var.get())
+        # Авторов, тег которых явно введён в фильтр (include_tags), не считаем
+        # "чужими коллабораторами" - пользователь их и ищет. Иначе при вводе
+        # тега автора (без чего флажок вообще недоступен - см.
+        # _update_solo_only_availability) "только сольные" тут же прятал бы
+        # все найденные файлы, ведь у них по определению есть этот тег.
+        # Так фильтр работает и при нескольких авторских тегах сразу: остаются
+        # работы именно с перечисленными авторами, но без ТРЕТЬЕГО лишнего.
+        other_artists = (self._get_other_artist_names() - include_tags) if solo_only else set()
+        need_tags = bool(include_tags or exclude_tags or solo_only)
+        skipped_collabs = 0
+
         try:
             for filename in os.listdir(artist_dir):
                 ext = os.path.splitext(filename)[1].lower()
                 if ext not in valid_exts: continue
 
-                if include_tags or exclude_tags:
+                if need_tags:
                     file_tags_str = meta_lower_keys.get(filename.lower(), "")
                     file_tags = set(file_tags_str.split())
+
+                    # Файлы, у которых тегов нет вообще (скачаны без метаданных
+                    # или теги ещё не догружены), фильтр не трогает - иначе он
+                    # прятал бы всё подряд просто из-за отсутствия информации.
+                    if solo_only and file_tags and (file_tags & other_artists):
+                        skipped_collabs += 1
+                        continue
 
                     if exclude_tags:
                         has_exclude = False
@@ -343,6 +431,9 @@ class GridMixin:
                 self.gal_filtered_files.append(os.path.join(artist_dir, filename))
         except OSError:
             pass
+
+        if solo_only and skipped_collabs:
+            applog.debug(f"Галерея, фильтр \"только сольные\": скрыто файлов с другими авторами - {skipped_collabs}.")
 
         if reset_page:
             self.gal_current_page = 1
@@ -520,6 +611,8 @@ class GridMixin:
             self.after(30, lambda f=frame: self._scroll_canvas_to_widget(f))
 
     def on_gal_search_key(self, event):
+        if event.keysym not in ("Up", "Down", "Left", "Right"):
+            self._update_solo_only_availability(*self._parse_gal_query_tags())
         if event.keysym in ("Return", "Up", "Down", "Left", "Right"): return
         if self.gal_auto_timer:
             self.after_cancel(self.gal_auto_timer)

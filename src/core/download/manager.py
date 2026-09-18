@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from tkinter import messagebox, filedialog
 
 from src.core import applog
+from src.core.download import queue_store
 from src.core.download.metadata_store import get_file_md5, load_artist_metadata, save_artist_metadata
 from src.core.media_types import ALLOWED_EXTENSIONS
 
@@ -13,6 +14,40 @@ from src.core.media_types import ALLOWED_EXTENSIONS
 class DownloadManager:
     def __init__(self, app):
         self.app = app
+
+    def _persist_queue(self) -> None:
+        """Сохраняет на диск то, что ещё не скачано: задачу, которая прямо
+        сейчас в работе (она уже вынута из очереди), плюс всю остальную
+        очередь. Вызывается на каждом изменении состояния, чтобы после
+        внезапного закрытия приложения было с чего продолжить."""
+        tasks = []
+        current = getattr(self.app, "current_download_task", None)
+        if current:
+            tasks.append(current)
+        tasks.extend(getattr(self.app, "download_queue", []))
+        queue_store.save_queue(tasks)
+
+    def resume_saved_queue(self, tasks: list) -> None:
+        """Ставит в очередь сохранённые с прошлого запуска задачи и сразу
+        запускает скачивание. Уже скачанные файлы внутри задачи отсеются
+        сами (см. _download_task в download_worker_loop)."""
+        if not tasks:
+            return
+
+        self.app.download_queue.extend(tasks)
+        self.app.log(self.app.tr("log_dl_resumed").format(queue_store.count_files(tasks), len(tasks)))
+
+        if not self.app.is_downloading:
+            self.app.stop_event.clear()
+            # Как и в остальных местах, откуда стартует download_worker_loop
+            # (prepare_download_worker, prepare_query_download_worker,
+            # _ask_mass_download_confirmation) - блокируем интерфейс на время
+            # скачивания. Раньше этот вызов тут отсутствовал, и после
+            # возобновления скачивания при старте все поля и кнопки
+            # оставались доступны для редактирования, хотя скачивание уже
+            # шло в фоне.
+            self.app.after(0, lambda: getattr(self.app, "_set_ui_state")(is_working=True))
+            threading.Thread(target=self.download_worker_loop, daemon=True).start()
 
     def _get_worker_count(self, var_name: str, default: int) -> int:
         """Читает настраиваемое число потоков из UI (см. gui.py), с безопасным откатом
@@ -140,6 +175,7 @@ class DownloadManager:
 
             if self.app.is_downloading or getattr(self.app, "is_prompting_dl", False):
                 self.app.download_queue.extend(temp_queue)
+                self._persist_queue()
                 self.app.log(self.app.tr("log_queue_added").format(file_count, total_str))
             else:
                 self.app.is_prompting_dl = True
@@ -352,6 +388,7 @@ class DownloadManager:
 
             if self.app.is_downloading or getattr(self.app, "is_prompting_dl", False):
                 self.app.download_queue.extend(temp_queue)
+                self._persist_queue()
                 self.app.log(self.app.tr("log_queue_added").format(file_count, total_str))
             else:
                 self.app.is_prompting_dl = True
@@ -368,6 +405,7 @@ class DownloadManager:
 
         if ans:
             self.app.download_queue.extend(temp_queue)
+            self._persist_queue()
             self.app.log("✅ Подтверждено, начинаем скачивание...")
             threading.Thread(target=self.download_worker_loop, daemon=True).start()
         else:
@@ -379,10 +417,18 @@ class DownloadManager:
             self.app.is_downloading = True
             while self.app.download_queue:
                 if self.app.stop_event.is_set():
-                    self.app.download_queue.clear()
+                    # Что делать с недоделанным - решается в finally: при
+                    # закрытии приложения очередь сохраняется, при остановке
+                    # пользователем выбрасывается.
                     break
 
+                # Задача уходит из очереди в работу, но из сохранённого
+                # состояния не пропадает - иначе закрытие приложения прямо
+                # во время её скачивания потеряло бы её целиком.
                 task = self.app.download_queue.pop(0)
+                self.app.current_download_task = task
+                self._persist_queue()
+
                 artist = task["artist"]
                 base_dir = task["dir"]
                 data_list = task["data_list"]
@@ -426,6 +472,17 @@ class DownloadManager:
                     res_filename = f"{file_prefix}_{idx + 1:04d}.{ext}"
                     filepath = os.path.join(artist_dir, res_filename)
 
+                    # Файл на месте - значит он уже был скачан (возможно, в
+                    # прошлый запуск, до того как скачивание прервали).
+                    # Недокачанные файлы под нормальным именем не лежат:
+                    # download_file пишет в .part и переименовывает только
+                    # после полной загрузки. Если сайт сообщил MD5 - лишний
+                    # раз убеждаемся, что на диске именно то, что нужно.
+                    if os.path.exists(filepath) and os.path.getsize(filepath) > 0:
+                        if not expected_md5 or get_file_md5(filepath) == expected_md5:
+                            artist_meta[res_filename] = tags
+                            return res_filename
+
                     if self.app.api.download_file(dl_url, filepath):
                         if expected_md5:
                             actual_md5 = get_file_md5(filepath)
@@ -455,6 +512,13 @@ class DownloadManager:
                 except (OSError, ValueError, TypeError) as err:
                     self.app.log(f"Не удалось сохранить теги для {artist}: {err}")
 
+                # Задача доведена до конца (или прервана - тогда ниже, в
+                # finally, состояние всё равно пересохранится с учётом того,
+                # что осталось).
+                if not self.app.stop_event.is_set():
+                    self.app.current_download_task = None
+                    self._persist_queue()
+
                 self.app.log(self.app.tr("log_dl_done").format(artist))
                 if self.app.download_queue:
                     self.app.log(self.app.tr("log_dl_queue_left").format(len(self.app.download_queue)))
@@ -464,5 +528,15 @@ class DownloadManager:
             applog.exception("Ошибка в download_worker_loop")
         finally:
             self.app.is_downloading = False
+
+            if self.app.stop_event.is_set() and not getattr(self.app, "is_closing", False):
+                # Пользователь сам нажал "Стоп" - продолжать нечего,
+                # сохранённое состояние выбрасываем (как и раньше).
+                self.app.download_queue.clear()
+                self.app.current_download_task = None
+
+            # Очередь опустела -> сохранённого состояния быть не должно.
+            # Закрыли приложение на середине -> в файле остаётся недоделанное.
+            self._persist_queue()
             self.app.after(0, getattr(self.app, "_progress_stop", lambda: None))
             self.app.after(0, getattr(self.app, "_check_unlock_ui"))

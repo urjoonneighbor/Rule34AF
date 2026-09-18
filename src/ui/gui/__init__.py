@@ -87,6 +87,7 @@ class AppGUI(MenuMixin, ThemeMixin, I18nMixin, LayoutMixin, StateMixin, UtilsMix
         self.net_toggle_var = tk.BooleanVar(value=False)
 
         self.gal_base_dir: str = ""
+        self.gal_solo_only: bool = False
         self.current_lang: str = "ru"
         self.current_theme: str = "dark"
         self.last_log_was_progress: bool = False

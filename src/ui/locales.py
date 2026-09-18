@@ -78,6 +78,7 @@ TRANSLATIONS = {
         "gal_btn_recover": "🔄 Догрузить теги (Для старых)",
         "gal_search_hint": "🔍 Поиск по тегам (через пробел):",
         "gal_btn_search": "Фильтр",
+        "gal_solo_only": "🎨 Только сольные",
         "gal_empty": "Папка не выбрана или пуста",
         "gal_loading": "⏳ Загрузка миниатюр...",
         "gal_prev": "◀ Назад",
@@ -124,6 +125,16 @@ TRANSLATIONS = {
         "log_dl_done": "✅ Скачивание для {} завершено.",
         "log_queue_added": "➕ Добавлено в активную очередь: {} файлов ({})",
         "log_dl_queue_left": "⏳ Осталось в очереди задач (авторов): {}",
+        "msg_exit_dl_title": "Скачивание не завершено",
+        "msg_exit_dl_prompt": ("Сейчас скачивается ещё {} файлов.\n\n"
+                               "Выйти? Прогресс сохранится, и при следующем запуске "
+                               "программа предложит продолжить с этого места."),
+        "msg_resume_dl_title": "Продолжить скачивание?",
+        "msg_resume_dl_prompt": ("С прошлого запуска осталось незавершённое скачивание: "
+                                 "{} файлов, авторов: {}.\n\nПродолжить? Уже скачанные файлы "
+                                 "будут пропущены.\n\nЕсли отказаться, сохранённая очередь будет удалена."),
+        "log_dl_resumed": "▶ Продолжаем прерванное скачивание: файлов {}, авторов {}.",
+        "log_dl_resume_declined": "🗑 Сохранённая очередь скачивания удалена.",
         "log_skip_bad": "⏭ Пропуск автора {} (оценка 'Плохой').",
         "msg_exported": "Результаты успешно сохранены в файл:\n{}",
         "msg_export_empty": "Нет данных для сохранения!",
@@ -182,8 +193,9 @@ TRANSLATIONS = {
         "err_start_search": "Ошибка при старте поиска: {}",
         "log_history_added": "⭐ В историю добавлено авторов: {}",
         "gal_err_render": "Ошибка рендера:\n{}",
-        "gal_title_copied": " - [КАРТИНКА СКОПИРОВАНА!]",
-        "gal_title_copied_path": " - [ОШИБКА. СКОПИРОВАН ПУТЬ]",
+        "gal_toast_copied": "Картинка скопирована в буфер обмена",
+        "gal_toast_copied_path": "Не удалось скопировать картинку — скопирован путь к файлу",
+        "gal_toast_nothing": "Копировать нечего: это не изображение",
         "menu_create_folder": "📁 Создать папку",
         "menu_move_to": "📁 Переместить в...",
         "menu_set_site": "🌐 Указать сайт...",
@@ -289,6 +301,7 @@ TRANSLATIONS = {
         "gal_btn_recover": "🔄 Fetch tags (For old)",
         "gal_search_hint": "🔍 Search tags (space-separated):",
         "gal_btn_search": "Filter",
+        "gal_solo_only": "🎨 Solo works only",
         "gal_empty": "Folder not selected or empty",
         "gal_loading": "⏳ Loading thumbnails...",
         "gal_prev": "◀ Prev",
@@ -335,6 +348,16 @@ TRANSLATIONS = {
         "log_dl_done": "✅ Download for {} finished.",
         "log_queue_added": "➕ Added to active queue: {} files ({})",
         "log_dl_queue_left": "⏳ Remaining queue tasks (artists): {}",
+        "msg_exit_dl_title": "Download in progress",
+        "msg_exit_dl_prompt": ("There are still {} files downloading.\n\n"
+                               "Quit anyway? Progress is saved, and the app will offer to "
+                               "resume from this point on the next launch."),
+        "msg_resume_dl_title": "Resume download?",
+        "msg_resume_dl_prompt": ("An unfinished download is left from the last session: "
+                                 "{} files, {} artists.\n\nResume? Files already downloaded "
+                                 "will be skipped.\n\nIf you decline, the saved queue is discarded."),
+        "log_dl_resumed": "▶ Resuming the interrupted download: {} files, {} artists.",
+        "log_dl_resume_declined": "🗑 Saved download queue discarded.",
         "log_skip_bad": "⏭ Skipping artist {} (marked as 'Bad').",
         "msg_exported": "Results successfully saved to:\n{}",
         "msg_export_empty": "No data to save!",
@@ -395,8 +418,9 @@ TRANSLATIONS = {
         "err_start_search": "Error starting search: {}",
         "log_history_added": "⭐ Added artists to history: {}",
         "gal_err_render": "Render error:\n{}",
-        "gal_title_copied": " - [IMAGE COPIED!]",
-        "gal_title_copied_path": " - [ERROR. PATH COPIED]",
+        "gal_toast_copied": "Image copied to clipboard",
+        "gal_toast_copied_path": "Couldn't copy the image — file path copied instead",
+        "gal_toast_nothing": "Nothing to copy: this isn't an image",
         "menu_create_folder": "📁 Create Folder",
         "menu_move_to": "📁 Move to...",
         "menu_set_site": "🌐 Set site...",

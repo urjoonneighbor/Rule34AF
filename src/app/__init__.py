@@ -29,6 +29,11 @@ class Rule34ArtistFinderApp(SearchMixin, HistoryMixin, StartupMixin, AiMixin, Ap
         }
         self._current_site_internal = "rule34.xxx"
         self.download_queue = []
+        # Задача, которую скачиваем прямо сейчас: она уже вынута из очереди,
+        # но ещё не доделана - нужна, чтобы сохранить её при закрытии
+        # приложения (см. DownloadManager._persist_queue).
+        self.current_download_task = None
+        self.is_closing = False
         self.timer_id = None
         self.MAX_WORKERS = 4
         self.stop_event = threading.Event()
@@ -47,9 +52,18 @@ class Rule34ArtistFinderApp(SearchMixin, HistoryMixin, StartupMixin, AiMixin, Ap
         self._apply_net_frame_visibility()
         self.apply_theme()
         self.update_ui_texts()
+        # load_settings() выполняется до create_widgets() (query_preview_text
+        # ещё не существует), поэтому если из настроек подхватились
+        # включенные фильтры (теги, "искл. рейтинг", "искл. ИИ" и т.п.),
+        # окно предпросмотра итогового запроса до этого момента показывало
+        # заглушку "[Пусто]", даже когда фильтры реально были включены.
+        self.update_preview()
         self.update_history_tree()
         self.run_startup_checks()
         self._check_for_updates()
+        # Незавершённое скачивание с прошлого запуска - спрашиваем уже после
+        # того, как окно отрисовано, чтобы диалог не выскочил раньше него.
+        self.after(600, self.check_unfinished_downloads)
 
     def apply_network_settings(self):
         """Вызывается при изменении поля прокси (см. gui.py, http_proxy_entry)."""
