@@ -1,27 +1,49 @@
 import requests
 
+from src.core.local_ai import run_local_analysis
 
-def run_ai_analysis_request(provider, api_key, model, search_history, lang="ru", tr_func=None):
-    if not search_history:
-        return tr_func("ai_empty_history") if tr_func else "Artists history is empty."
+LOCAL_AI_PROVIDER = "Qwen2.5 0.5B (Встроенная)"
 
-    tags_str = ", ".join(search_history)
+
+def run_ai_analysis_request(provider, api_key, model, profile_tags, lang="ru", tr_func=None, progress_callback=None):
+    """profile_tags: агрегированные РЕАЛЬНЫЕ теги содержимого (не имена
+    авторов!) у оценённых "хорошо" авторов - см.
+    SearchEngine.build_taste_profile в src/core/search/engine.py. Модель
+    отвечает только за текстовое описание стиля по этим тегам - список
+    похожих авторов теперь ищется детерминированно прямо на сайте
+    (SearchEngine.find_similar_artists) и добавляется к этому тексту уже в
+    src/app/ai.py, а не спрашивается у LLM: ни одна модель (в т.ч. крупная
+    облачная) не имеет живого доступа в интернет, чтобы реально знать стиль
+    конкретных, часто уникальных 18+ псевдонимов буру-сайтов - она либо
+    выдумывала факты, либо просто повторяла те же имена, что были на входе."""
+    if not profile_tags:
+        return tr_func("ai_no_profile_tags") if tr_func else "Not enough tag data to describe a style."
+
+    tags_str = ", ".join(profile_tags)
+
+    if provider == LOCAL_AI_PROVIDER:
+        # Отдельная ветка, а не try-блок ниже: своя логика ошибок (скачивание
+        # модели / отсутствие llama-cpp-python в сборке) - не сетевая ошибка
+        # к внешнему провайдеру, поэтому не должна попадать в общий
+        # "Ошибка сети" catch-all.
+        return run_local_analysis(tags_str, lang, tr_func=tr_func, progress_callback=progress_callback)
 
     if lang == "en":
         prompt = (
             f"You are an expert in digital art and Rule34. "
-            f"User likes these artists: {tags_str}. "
-            f"1) Briefly describe the art style or genre that unites them. "
-            f"2) Suggest 5-7 similar high-quality artists. "
-            f"Answer in English, use bullet points."
+            f"These are the most common content tags across a collection of favorite artwork: {tags_str}. "
+            f"In a few sentences, describe the shared art style, genre or theme these tags suggest. "
+            f"Do not invent or mention any specific artist names - you only know the tags, not who drew what. "
+            f"Answer in English."
         )
     else:
         prompt = (
             f"Ты эксперт по цифровому искусству и платформе Rule34. "
-            f"Пользователю нравятся следующие авторы (художники): {tags_str}. "
-            f"1) Коротко опиши, какой стиль или жанр объединяет этих авторов. "
-            f"2) Предложи 5-7 похожих качественных авторов. "
-            f"Отвечай на русском языке, структурировано."
+            f"Вот самые частые теги содержимого в подборке любимых работ: {tags_str}. "
+            f"В нескольких предложениях опиши, какой стиль, жанр или тематику объединяют эти теги. "
+            f"Не придумывай и не называй конкретных имён авторов - тебе известны только теги, а не то, кто "
+            f"именно это рисовал. "
+            f"Отвечай на русском языке."
         )
 
     try:

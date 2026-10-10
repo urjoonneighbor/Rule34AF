@@ -27,20 +27,50 @@ def get_asset_path(filename: str) -> str:
     return os.path.join(base_path, "assets", filename)
 
 
+APP_USER_MODEL_ID = "Rule34ArtistFinder"
+ICON_SIZES = (256, 64, 48, 32, 16)
+
+
+def set_windows_app_id() -> None:
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
+    except (AttributeError, OSError) as e:
+        applog.warning(f"Не удалось задать AppUserModelID: {e}")
+
+
+def load_window_icons(master: tk.Misc) -> list:
+    path = get_asset_path("1.png")
+    try:
+        from PIL import Image, ImageTk
+    except ImportError:
+        return [tk.PhotoImage(master=master, file=path)]
+    with Image.open(path) as source:
+        image = source.convert("RGBA")
+    side = min(image.size)
+    left = (image.width - side) // 2
+    top = (image.height - side) // 2
+    square = image.crop((left, top, left + side, top + side))
+    return [ImageTk.PhotoImage(square.resize((size, size), Image.Resampling.LANCZOS), master=master)
+            for size in ICON_SIZES]
+
+
 class AppGUI(MenuMixin, ThemeMixin, I18nMixin, LayoutMixin, StateMixin, UtilsMixin, LogMixin, ActionStubsMixin, tk.Tk):
     """Главное окно приложения: строит и переключает интерфейс (виджеты,
     тема, язык). Конкретные действия (поиск, скачивание и т.д.) реализует
     подкласс Rule34ArtistFinderApp в src/app/; см. action_stubs.py для
     контракта таких методов."""
     def __init__(self):
+        set_windows_app_id()
         super().__init__()
         self.geometry("1050x760")
 
         try:
-            icon_path = get_asset_path("1.png")
-            icon_img = tk.PhotoImage(file=icon_path)
-            self.iconphoto(False, icon_img)
-        except tk.TclError as e:
+            self._window_icons = load_window_icons(self)
+            self.iconphoto(True, *self._window_icons)
+        except (tk.TclError, OSError) as e:
             applog.warning(f"Не удалось загрузить иконку приложения: {e}")
 
         self.font_main = ("Segoe UI", 10)
@@ -190,6 +220,7 @@ class AppGUI(MenuMixin, ThemeMixin, I18nMixin, LayoutMixin, StateMixin, UtilsMix
         self.ai_api_key_entry = None
         self.btn_help_ai_keys = None
         self.lbl_ai_model = None
+        self.ai_model_entry = None
         self.btn_ai = None
         self.ai_text_area = None
 

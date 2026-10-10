@@ -63,6 +63,14 @@ class StateMixin:
         self.ai_api_key_entry.config(state=state)
         self.btn_ai.config(state=state)
         self.btn_help_ai_keys.config(state=state)
+        # Поле модели во время работы просто блокируется вместе со всем
+        # остальным, а при разблокировке возвращается к состоянию, которое
+        # диктует текущий провайдер (у встроенной модели оно всегда
+        # заблокировано - см. on_ai_provider_change).
+        if is_working:
+            self.ai_model_entry.config(state=state)
+        else:
+            self.on_ai_provider_change()
 
         self.btn_hist_run.config(state=state)
         self.btn_hist_delete.config(state=state)

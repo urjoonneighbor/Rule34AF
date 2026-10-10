@@ -48,6 +48,9 @@ class FakeApp:
         self.dl_exclude_var = FakeVar("")
         self.show_ai_tab_var = FakeVar(False)
         self.show_hist_site_var = FakeVar(True)
+        self.ai_provider_var = FakeVar("Ollama (Локально)")
+        self.ai_model_var = FakeVar("llama3")
+        self.ai_api_key_var = FakeVar("")
 
         self.site_credentials = {
             "rule34.xxx": {"api_key": "", "user_id": ""},

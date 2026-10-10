@@ -110,17 +110,27 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install ".[secure-storage]"
+          # У llama-cpp-python (встроенная локальная AI-модель) нет готовых
+          # wheel'ов на обычном PyPI - обычная установка компилировала бы
+          # пакет из исходников на всех трёх ОС (нужны CMake и компилятор
+          # C/C++, сборка занимает много времени). У этого extra-index -
+          # готовые CPU-wheel'ы под Windows/Linux/macOS без компиляции.
+          pip install ".[local-ai]" --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
           pip install pyinstaller
 
       - name: Build with PyInstaller (Windows)
         if: runner.os == 'Windows'
-        # Заметь: разделитель папок на Windows - точка с запятой (;)
-        run: pyinstaller --noconfirm --onefile --windowed --icon="assets/1.png" --add-data "assets;assets" --name "Rule34_Artist_Finder" main.py
+        # Заметь: разделитель папок на Windows - точка с запятой (;).
+        # --collect-all llama_cpp - PyInstaller по умолчанию не видит
+        # скомпилированную библиотеку (llama.dll), которую llama-cpp-python
+        # грузит через ctypes в рантайме, а не обычным импортом.
+        run: pyinstaller --noconfirm --onefile --windowed --icon="assets/1.png" --add-data "assets;assets" --collect-all llama_cpp --name "Rule34_Artist_Finder" main.py
 
       - name: Build with PyInstaller (Linux/macOS)
         if: runner.os != 'Windows'
-        # На Linux/Mac - разделитель двоеточие (:)
-        run: pyinstaller --noconfirm --onefile --windowed --icon="assets/1.png" --add-data "assets:assets" --name "Rule34_Artist_Finder" main.py
+        # На Linux/Mac - разделитель двоеточие (:). См. комментарий выше про
+        # --collect-all llama_cpp (то же самое: libllama.so / libllama.dylib).
+        run: pyinstaller --noconfirm --onefile --windowed --icon="assets/1.png" --add-data "assets:assets" --collect-all llama_cpp --name "Rule34_Artist_Finder" main.py
 
       - name: Prepare Assets (Rename and Zip)
         shell: bash

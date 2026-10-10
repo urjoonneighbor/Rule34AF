@@ -23,6 +23,16 @@ secure-storage = [
     "keyring",
     "cryptography",
 ]
+# Встроенная локальная AI-модель (Qwen2.5 0.5B Instruct, GGUF) - работает
+# офлайн прямо в процессе приложения, без Ollama/LM Studio и без API-ключей
+# (см. src/core/local_ai.py). PyPI не публикует готовые wheel'ы для
+# llama-cpp-python - обычный "pip install" будет компилировать пакет из
+# исходников (нужны CMake и компилятор C/C++). Чтобы поставить готовый
+# CPU-wheel под Windows/Linux/macOS без компиляции, ставьте так:
+#   pip install ".[local-ai]" --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+local-ai = [
+    "llama-cpp-python",
+]
 dev = [
     "pytest",
 ]
