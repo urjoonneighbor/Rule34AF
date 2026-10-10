@@ -109,6 +109,7 @@ class GridMixin:
         total_pages = math.ceil(
             len(self.gal_filtered_files) / self.gal_items_per_page) if self.gal_filtered_files else 1
         self.lbl_gal_page.config(text=self.app.tr("gal_page").format(self.gal_current_page, total_pages))
+        self._refresh_last_viewed_highlight()
 
     def apply_theme(self, bg_main, input_bg, fg_main, select_bg, border_col):
         self.gal_canvas.configure(bg=bg_main)
@@ -118,6 +119,8 @@ class GridMixin:
         self.gal_listbox_auto.configure(bg=input_bg, fg=fg_main, selectbackground=select_bg,
                                         selectforeground="#ffffff", highlightcolor=select_bg,
                                         highlightbackground=border_col)
+        self._gal_accent = select_bg
+        self._refresh_last_viewed_highlight()
 
     def load_gallery_folder(self):
         if not self.gal_base_dir or not os.path.exists(self.gal_base_dir):
@@ -297,7 +300,7 @@ class GridMixin:
 
         # reset_page=False: открываем автора на той странице, где остановились
         # в прошлый раз (см. gal_artist_positions), а не всегда с первой.
-        self.on_gal_search(reset_page=False)
+        self.on_gal_search(reset_page=False, focus_last_viewed=True)
 
     def _get_other_artist_names(self) -> set[str]:
         """Имена всех известных приложению авторов, КРОМЕ текущего, в нижнем
@@ -369,7 +372,7 @@ class GridMixin:
         if not available and self.gal_solo_only_var.get():
             self.gal_solo_only_var.set(False)
 
-    def on_gal_search(self, reset_page=False):
+    def on_gal_search(self, reset_page=False, focus_last_viewed=False):
         if not self.gal_current_artist: return
 
         artist_dir = os.path.join(self.gal_base_dir, self.gal_current_artist)
@@ -445,6 +448,11 @@ class GridMixin:
             saved_page = self.gal_artist_positions.get(self.gal_current_artist, 1)
             self.gal_current_page = max(1, min(saved_page, total_pages))
 
+        if focus_last_viewed:
+            last_idx = self._last_viewed_index()
+            if last_idx is not None and last_idx // self.gal_items_per_page + 1 == self.gal_current_page:
+                self._gal_pending_scroll_idx = last_idx
+
         self._render_gallery_page()
 
     def gal_first_page(self):
@@ -489,7 +497,9 @@ class GridMixin:
             self._render_gallery_page()
         else:
             # Страница та же самая - сетка уже отрендерена, просто прокручиваем.
+            self._refresh_last_viewed_highlight()
             self._scroll_to_pending_thumb()
+            self._flush_pending_save()
 
     def _scroll_to_pending_thumb(self):
         target_idx = self._gal_pending_scroll_idx
@@ -521,6 +531,12 @@ class GridMixin:
 
         if self.gal_current_artist:
             self.gal_artist_positions[self.gal_current_artist] = self.gal_current_page
+            self._save_gallery_state()
+
+        page_start = (self.gal_current_page - 1) * self.gal_items_per_page
+        pending = self._gal_pending_scroll_idx
+        if pending is not None and not page_start <= pending < page_start + self.gal_items_per_page:
+            self._gal_pending_scroll_idx = None
 
         for widget in self.gal_scroll_frame.winfo_children():
             widget.destroy()
@@ -595,20 +611,102 @@ class GridMixin:
         self.gal_images_refs.append(photo)
 
         bg_color = "#e74c3c" if ext in ['mp4', 'webm'] else self.app.cget('bg')
-        frame = tk.Frame(self.gal_scroll_frame, bg=bg_color, bd=2)
+        frame = tk.Frame(self.gal_scroll_frame, bg=bg_color, bd=2, highlightthickness=3)
         frame._gal_abs_idx = abs_idx
-        frame.grid(row=row, column=col, padx=5, pady=5)
+        frame.grid(row=row, column=col, padx=2, pady=2)
 
         btn = tk.Button(frame, image=photo, relief="flat", command=lambda idx=abs_idx: self.open_media_viewer(idx))
         btn.pack()
+        frame._gal_button = btn
 
         if ext in ['mp4', 'webm', 'avi']:
             tk.Label(frame, text=self.app.tr("gal_video_label"), fg="white", bg="#e74c3c",
                      font=("Segoe UI", 8, "bold")).pack(fill=tk.X)
 
+        frame._gal_path = self.gal_filtered_files[abs_idx] if 0 <= abs_idx < len(self.gal_filtered_files) else ""
+        self._apply_thumb_highlight(frame, self._is_last_viewed(frame._gal_path))
+
         if abs_idx == getattr(self, "_gal_pending_scroll_idx", None):
             self._gal_pending_scroll_idx = None
             self.after(30, lambda f=frame: self._scroll_canvas_to_widget(f))
+
+    def _last_viewed_name(self) -> str | None:
+        if not self.gal_current_artist:
+            return None
+        return self.gal_artist_last_files.get(self.gal_current_artist)
+
+    def _is_last_viewed(self, path: str) -> bool:
+        name = self._last_viewed_name()
+        return name is not None and os.path.basename(path) == name
+
+    def _last_viewed_index(self) -> int | None:
+        name = self._last_viewed_name()
+        if name is None:
+            return None
+        for index, path in enumerate(self.gal_filtered_files):
+            if os.path.basename(path) == name:
+                return index
+        return None
+
+    def remember_last_viewed(self, abs_idx: int) -> None:
+        if not self.gal_current_artist or not 0 <= abs_idx < len(self.gal_filtered_files):
+            return
+        name = os.path.basename(self.gal_filtered_files[abs_idx])
+        if self.gal_artist_last_files.get(self.gal_current_artist) == name:
+            return
+        self.gal_artist_last_files[self.gal_current_artist] = name
+        if self._gal_save_timer is not None:
+            self.after_cancel(self._gal_save_timer)
+        self._gal_save_timer = self.after(1000, self._on_gallery_save_timer)
+
+    def _on_gallery_save_timer(self) -> None:
+        self._gal_save_timer = None
+        self._save_gallery_state()
+
+    def _flush_pending_save(self) -> None:
+        if self._gal_save_timer is not None:
+            self._save_gallery_state()
+
+    def _save_gallery_state(self) -> None:
+        if self._gal_save_timer is not None:
+            self.after_cancel(self._gal_save_timer)
+            self._gal_save_timer = None
+        if hasattr(self.app, "save_settings"):
+            self.app.save_settings()
+
+    @staticmethod
+    def _marker_text_color(background: str) -> str:
+        try:
+            red, green, blue = (int(background[i:i + 2], 16) for i in (1, 3, 5))
+        except (ValueError, IndexError):
+            return "#ffffff"
+        return "#000000" if 0.299 * red + 0.587 * green + 0.114 * blue > 160 else "#ffffff"
+
+    def _apply_thumb_highlight(self, frame, highlighted: bool) -> None:
+        ring = self._gal_accent if highlighted else self.app.cget("bg")
+        frame.configure(highlightbackground=ring, highlightcolor=ring)
+        marker = getattr(frame, "_gal_marker", None)
+        if highlighted:
+            if marker is None:
+                button = frame._gal_button
+                marker = tk.Label(frame, font=("Segoe UI", 8, "bold"), bd=0,
+                                  wraplength=button.winfo_reqwidth())
+                marker.place(in_=button, relx=0, rely=1, relwidth=1, anchor="sw")
+                marker.bind("<Button-1>", lambda _event: button.invoke())
+                frame._gal_marker = marker
+            marker.configure(text=self.app.tr("gal_last_viewed"), bg=self._gal_accent,
+                             fg=self._marker_text_color(self._gal_accent))
+        elif marker is not None:
+            marker.destroy()
+            frame._gal_marker = None
+
+    def _refresh_last_viewed_highlight(self) -> None:
+        if self.gal_scroll_frame is None:
+            return
+        for widget in self.gal_scroll_frame.winfo_children():
+            path = getattr(widget, "_gal_path", None)
+            if path is not None:
+                self._apply_thumb_highlight(widget, self._is_last_viewed(path))
 
     def on_gal_search_key(self, event):
         if event.keysym not in ("Up", "Down", "Left", "Right"):

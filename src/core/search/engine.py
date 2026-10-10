@@ -1,10 +1,27 @@
+import collections
 import os
+import threading
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from src.core import applog
 from src.core.storage import blob_codec
 from src.core.storage.paths import DEBUG_LOG_FILENAME, FOUND_ARTISTS_FILENAME, resolve_data_file
+
+# Теги, не несущие информации о жанре/стиле для "профиля вкуса" (см.
+# SearchEngine.build_taste_profile) - чисто композиционные/технические
+# метки, которые есть почти у любого поста независимо от темы, и поиск по
+# ним не сузил бы результат до чего-то содержательного.
+_GENERIC_PROFILE_TAGS = frozenset({
+    "tagme", "hi_res", "highres", "absurd_res", "huge_filesize", "conditional_dnp",
+    "watermark", "signature", "artist_name", "text", "dialogue", "english_text",
+    "translated", "uncensored", "censored", "comic", "animated", "sound_warning",
+    "digital_media_(artwork)", "traditional_media_(artwork)", "third-party_edit",
+    "screencap", "meme", "patreon", "patreon_reward", "commission", "edit",
+    "1girl", "1boy", "2girls", "2boys", "solo", "duo", "group",
+    "male", "female", "male/female", "male/male", "female/female",
+    "straight", "gay", "lesbian",
+})
 
 
 class SearchEngine:
@@ -192,7 +209,7 @@ class SearchEngine:
                     if data:
                         # Если нашли кого-то нового, создаем папку
                         group_name = f"🔍 Поиск: {query_string}"
-                        app.grouped_history_data[group_name] = data
+                        app.grouped_history_data.setdefault(group_name, []).extend(data)
                     else:
                         # Используем ключ локализации, который мы уже добавили в locales.py
                         app.log(app.tr("log_all_excluded")) 
@@ -250,3 +267,109 @@ class SearchEngine:
         except OSError as e:
             self.app.log(self.app.tr("err_autosave").format(e))
             applog.error(f"Не удалось сохранить {dat_file}: {e}")
+
+    def build_taste_profile(self, good_artists_data, known_names, top_n=6):
+        """Строит "профиль вкуса" из РЕАЛЬНЫХ тегов содержимого (не имён
+        авторов!) у авторов, оценённых "хорошо" - какие темы/жанры/виды
+        повторяются у них чаще всего. Используется вместо того, чтобы
+        спрашивать у LLM "на кого похожи эти авторы" - ни одна модель не
+        знает по имени, как рисуют конкретные, часто уникальные псевдонимы
+        буру-сайтов, а вот сами теги контента - это проверенные, реальные
+        данные из истории поиска (см. artist_tags_map в search_worker выше).
+
+        good_artists_data: список записей вида {"artist": ..., "tags": [...]}
+        (как элементы grouped_history_data). known_names: имена уже известных
+        авторов (в любом регистре) - исключаются из профиля, чтобы не искать
+        по чужому нику как по тегу."""
+        known_lower = {str(n).lower() for n in known_names}
+        counter = collections.Counter()
+        for item in good_artists_data:
+            for tag in item.get("tags", []) or []:
+                t = str(tag).lower()
+                if not t or t in known_lower:
+                    continue
+                if t.startswith("rating:") or t.startswith("source:"):
+                    continue
+                if t in _GENERIC_PROFILE_TAGS:
+                    continue
+                counter[t] += 1
+        return [tag for tag, _count in counter.most_common(top_n)]
+
+    def find_similar_artists(self, profile_tags, api_key, user_id, known_names, log_callback=None, max_results=10):
+        """Ищет РЕАЛЬНЫХ, ранее неизвестных авторов на сайте по тегам
+        "профиля вкуса" (см. build_taste_profile) - тем же способом, каким
+        обычный поиск (search_worker выше) находит авторов по введённым
+        вручную тегам: собираем посты под тегами профиля, смотрим, какие ещё
+        теги встречаются в этих постах, и через check_tag_global_stats
+        проверяем, какие из них - теги-авторы. Никакой LLM здесь не участвует
+        - список полностью детерминирован и составлен из настоящих данных
+        сайта, поэтому в нём не может быть выдуманных имён.
+
+        Пробуем от более узкого запроса (несколько тегов профиля сразу) к
+        более широкому (по одному тегу за раз), пока не наберётся достаточно
+        кандидатов - слишком узкий запрос рискует не найти вообще ничего,
+        а сразу слишком широкий - слишком много шума и слишком долгий
+        запрос. known_names исключаются из результата целиком (в любой
+        категории оценки, не только "хорошо") - чтобы не предлагать того,
+        кто уже есть в списке."""
+        app = self.app
+        if not profile_tags:
+            return []
+
+        known_lower = {str(n).lower() for n in known_names}
+        profile_lower = {str(t).lower() for t in profile_tags}
+        found = {}
+        # Своё событие, а не общее app.stop_event - эта фича не привязана к
+        # кнопке "Стоп" обычного поиска и не должна ни зависеть от его
+        # состояния, ни менять его.
+        stop_event = threading.Event()
+
+        attempts = []
+        if len(profile_tags) >= 3:
+            attempts.append(profile_tags[:3])
+        if len(profile_tags) >= 2:
+            attempts.append(profile_tags[:2])
+        for t in profile_tags[:4]:
+            attempts.append([t])
+
+        tag_workers = getattr(app, "MAX_WORKERS", 4)
+
+        for tags_combo in attempts:
+            if len(found) >= max_results:
+                break
+
+            query_string = " ".join(tags_combo)
+            if log_callback:
+                log_callback(query_string)
+
+            try:
+                posts = app.api.get_all_posts(query_string, api_key, user_id, stop_event)
+            except Exception:
+                applog.exception("Ошибка поиска похожих авторов (get_all_posts)")
+                continue
+            if not posts:
+                continue
+
+            raw_unique_tags = set()
+            for post in posts:
+                raw_unique_tags.update(str(post.get("tags", "")).lower().split())
+            candidate_tags = [t for t in raw_unique_tags if t not in known_lower and t not in profile_lower]
+            if not candidate_tags:
+                continue
+
+            with ThreadPoolExecutor(max_workers=tag_workers) as executor:
+                future_to_tag = {
+                    executor.submit(app.api.check_tag_global_stats, tag, api_key, user_id, stop_event): tag
+                    for tag in candidate_tags
+                }
+                for future in as_completed(future_to_tag):
+                    try:
+                        tag_name, is_artist, global_count = future.result()
+                    except Exception:
+                        continue
+                    if is_artist and tag_name.lower() not in known_lower:
+                        if tag_name not in found or global_count > found[tag_name]:
+                            found[tag_name] = global_count
+
+        ranked = sorted(found.items(), key=lambda x: x[1], reverse=True)
+        return ranked[:max_results]

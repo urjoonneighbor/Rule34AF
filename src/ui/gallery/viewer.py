@@ -444,6 +444,7 @@ class ViewerMixin:
             except tk.TclError:
                 return
 
+            self.remember_last_viewed(self.viewer_idx)
             self.v_zoom = 1.0
             self.v_pan_x = 0
             self.v_pan_y = 0

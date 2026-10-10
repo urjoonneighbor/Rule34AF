@@ -5,6 +5,14 @@ from typing import Any
 from src.core import applog
 from src.core.storage import blob_codec, paths, secure_store
 
+# Ключ для API-ключа AI-провайдера внутри того же словаря/файла, что и
+# учётные данные буру-сайтов (site_credentials) - переиспользуем уже
+# существующее шифрованное хранилище вместо отдельного файла ради одного
+# значения. Ключ заведомо не может совпасть с именем настоящего сайта
+# (rule34.xxx и т.п.), так что ничего, что перебирает site_credentials по
+# именам сайтов, этим не заденет.
+_AI_CREDENTIALS_KEY = "__ai__"
+
 
 class ConfigManager:
     def __init__(self, app: Any):
@@ -91,6 +99,20 @@ class ConfigManager:
                 self.app.site_var.set(loaded_site)
                 self.app._current_site_internal = loaded_site
 
+                # Провайдер/модель AI-анализа - раньше не сохранялись вовсе,
+                # поэтому при каждом перезапуске вкладка молча откатывалась на
+                # дефолтный "Ollama (Локально)" независимо от того, что
+                # реально выбрал пользователь (см. CHANGELOG). API-ключ - в
+                # том же зашифрованном файле, что и ключи буру-сайтов.
+                if hasattr(self.app, "ai_provider_var"):
+                    self.app.ai_provider_var.set(str(data.get("ai_provider", self.app.ai_provider_var.get())))
+                if hasattr(self.app, "ai_model_var"):
+                    self.app.ai_model_var.set(str(data.get("ai_model", self.app.ai_model_var.get())))
+                if hasattr(self.app, "ai_api_key_var"):
+                    ai_creds = creds.get(_AI_CREDENTIALS_KEY, {})
+                    if isinstance(ai_creds, dict):
+                        self.app.ai_api_key_var.set(str(ai_creds.get("api_key", "")))
+
                 current_creds = self.app.site_credentials.get(loaded_site, {})
                 if not isinstance(current_creds, dict): current_creds = {"api_key": "", "user_id": ""}
 
@@ -122,6 +144,16 @@ class ConfigManager:
                 if getattr(self.app, "tab_gallery", None):
                     self.app.tab_gallery.gal_base_dir = self.app.gal_base_dir
 
+                # Автор, который был открыт в галерее на момент закрытия
+                # программы - подхватывается конструктором GalleryTab (см.
+                # gui/layout.py), чтобы он сам выбрался в списке и открылся на
+                # своей сохранённой странице (gal_artist_positions ниже).
+                # Раньше сохранялась только страница КАЖДОГО автора, но не то,
+                # какой автор был открыт - после перезапуска список авторов
+                # был пуст (ничего не выбрано), и выглядело это так, будто
+                # программа вообще забыла, на чём пользователь остановился.
+                self.app.gal_current_artist = str(data.get("gal_current_artist", ""))
+
                 # На какой странице пользователь остановился у каждого автора
                 # в локальной галерее (имя автора -> номер страницы). tab_gallery
                 # на момент load_settings() обычно ещё не создан - значение
@@ -130,6 +162,11 @@ class ConfigManager:
                 self.app.gal_artist_positions = raw_positions if isinstance(raw_positions, dict) else {}
                 if getattr(self.app, "tab_gallery", None):
                     self.app.tab_gallery.gal_artist_positions = self.app.gal_artist_positions
+
+                raw_last_files = data.get("gal_artist_last_files", {})
+                self.app.gal_artist_last_files = raw_last_files if isinstance(raw_last_files, dict) else {}
+                if getattr(self.app, "tab_gallery", None):
+                    self.app.tab_gallery.gal_artist_last_files = self.app.gal_artist_last_files
 
                 # Фильтр галереи "только сольные" - подхватывается конструктором
                 # GalleryTab так же, как gal_artist_positions выше.
@@ -198,6 +235,10 @@ class ConfigManager:
                 current_creds = creds.get(self.app.site_var.get(), {})
                 self.app.api_key_var.set(str(current_creds.get("api_key", "")))
                 self.app.user_id_var.set(str(current_creds.get("user_id", "")))
+                if hasattr(self.app, "ai_api_key_var"):
+                    ai_creds = creds.get(_AI_CREDENTIALS_KEY, {})
+                    if isinstance(ai_creds, dict):
+                        self.app.ai_api_key_var.set(str(ai_creds.get("api_key", "")))
             else:
                 self.app.api_key_var.set("")
                 self.app.user_id_var.set("")
@@ -239,10 +280,20 @@ class ConfigManager:
                 "api_key": self.app.api_key_var.get(),
                 "user_id": self.app.user_id_var.get(),
             }
+            # API-ключ AI-провайдера - такой же секрет, как ключи буру-сайтов
+            # выше, поэтому кладём его в тот же шифрованный файл, а не в
+            # обычный (лишь слегка закодированный) файл настроек ниже.
+            if hasattr(self.app, "ai_api_key_var"):
+                site_credentials[_AI_CREDENTIALS_KEY] = {"api_key": self.app.ai_api_key_var.get()}
             self._save_credentials(site_credentials)
 
         data: dict[str, Any] = {
             "site": self.app.site_var.get(),
+            # Провайдер/модель AI-анализа - раньше не сохранялись вовсе, из-за
+            # чего вкладка при каждом запуске откатывалась на дефолтный
+            # "Ollama (Локально)" (см. CHANGELOG). Сам ключ - выше, отдельно.
+            "ai_provider": self.app.ai_provider_var.get(),
+            "ai_model": self.app.ai_model_var.get(),
             # ВНИМАНИЕ: реальные ключи/логины теперь хранятся отдельно и
             # зашифрованно (см. _save_credentials) - здесь их больше нет.
             "any_amount": self.app.any_amount_var.get(),
@@ -266,6 +317,17 @@ class ConfigManager:
             "gal_artist_positions": getattr(
                 getattr(self.app, "tab_gallery", None), "gal_artist_positions",
                 getattr(self.app, "gal_artist_positions", {}),
+            ),
+            # Автор, открытый в галерее прямо сейчас - без этого при следующем
+            # запуске список авторов оставался невыбранным, и сохранённые
+            # выше позиции страниц было не к чему применить (см. CHANGELOG).
+            "gal_current_artist": getattr(
+                getattr(self.app, "tab_gallery", None), "gal_current_artist",
+                getattr(self.app, "gal_current_artist", ""),
+            ),
+            "gal_artist_last_files": getattr(
+                getattr(self.app, "tab_gallery", None), "gal_artist_last_files",
+                getattr(self.app, "gal_artist_last_files", {}),
             ),
             "gal_solo_only": self._get_gallery_solo_only(),
             "language": getattr(self.app, "current_lang", "ru"),

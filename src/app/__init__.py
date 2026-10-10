@@ -58,6 +58,15 @@ class Rule34ArtistFinderApp(SearchMixin, HistoryMixin, StartupMixin, AiMixin, Ap
         # окно предпросмотра итогового запроса до этого момента показывало
         # заглушку "[Пусто]", даже когда фильтры реально были включены.
         self.update_preview()
+        # Синхронизирует состояние полей (API-ключ/модель) вкладки
+        # AI-анализа с провайдером, который реально загружен из настроек -
+        # иначе, например, поле ключа осталось бы задизейбленным для
+        # облачного провайдера, потому что в разметке (layout.py) оно по
+        # умолчанию задизейблено под жёстко заданный дефолт "Ollama". Именно
+        # _sync_ai_widget_states(), а не on_ai_provider_change() - последняя
+        # ещё и сбрасывает модель на дефолтную для провайдера, а тут модель
+        # уже загружена из настроек и её трогать не нужно.
+        self._sync_ai_widget_states(self.ai_provider_var.get())
         self.update_history_tree()
         self.run_startup_checks()
         self._check_for_updates()

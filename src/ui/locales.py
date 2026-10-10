@@ -163,6 +163,7 @@ TRANSLATIONS = {
         "err_save_tags": "Не удалось сохранить теги для {}: {}",
         "err_download": "Ошибка скачивания: {}",
         "gal_video_label": "▶ ВИДЕО",
+        "gal_last_viewed": "👁 Вы здесь",
         "gal_video_hint": "Файл видео.\nНажмите Enter или кнопку ниже, чтобы открыть его.",
         "gal_btn_open_video": "▶ Открыть видео в плеере",
         "gal_err_load_img": "Ошибка загрузки картинки:\n{}",
@@ -174,6 +175,16 @@ TRANSLATIONS = {
                       "1. Скачайте и установите программу с ollama.com\n"
                       "2. Откройте командную строку и напишите: ollama run llama3\n"
                       "3. Дождитесь скачивания и после этого нажимайте 'Запустить' в нашей программе.",
+        "local_ai_title": "Встроенная модель",
+        "local_ai_msg": "Эта модель (Qwen2.5 0.5B) работает офлайн прямо внутри программы - "
+                        "не нужно ничего устанавливать отдельно и не нужен API-ключ.\n\n"
+                        "При первом использовании файл модели (~490 МБ) скачается автоматически, "
+                        "это может занять несколько минут в зависимости от скорости интернета. "
+                        "Дальше модель уже не скачивается и работает полностью локально.\n\n"
+                        "Модель только описывает стиль по реальным тегам ваших любимых работ - "
+                        "список похожих авторов ищется прямо на сайте по этим же тегам, а не "
+                        "придумывается моделью (она всё равно не может знать, как рисуют "
+                        "конкретные псевдонимы на буру-сайтах).",
         "log_all_excluded": "⚠️ Все найденные авторы были исключены фильтром.",
         "log_debug_saved": "🛠 Отчет проверки тегов успешно сохранен в файл: {}",
         "err_debug_save": "Ошибка сохранения дебаг-лога: {}",
@@ -184,6 +195,19 @@ TRANSLATIONS = {
         "ai_err_network": "Ошибка сети: {}",
         "ai_err_api": "Ошибка {}: {}",
         "ai_empty_history": "История авторов пуста. Сначала добавьте кого-нибудь в историю!",
+        "ai_err_no_api_key": "Для этого провайдера нужен API-ключ - введите его в поле выше.",
+        "ai_local_downloading": "Скачивание встроенной модели: {} / {} МБ ({}%)...",
+        "ai_local_loading": "Загрузка модели в память...",
+        "ai_err_local_unavailable": "Встроенная модель недоступна в этой сборке "
+                                    "(не установлен пакет llama-cpp-python).",
+        "ai_err_local_download": "Не удалось скачать встроенную модель. Проверьте подключение "
+                                 "к интернету и попробуйте снова.",
+        "ai_finding_similar": "Ищу похожих авторов на сайте...",
+        "ai_header_style": "Стиль:",
+        "ai_header_similar": "Похожие авторы, найденные на сайте (в скобках - число постов):",
+        "ai_no_similar_found": "Не удалось найти новых похожих авторов по этим тегам.",
+        "ai_no_profile_tags": "Недостаточно данных по тегам, чтобы описать стиль - "
+                              "у оценённых «хорошо» авторов пока нет сохранённых тегов контента.",
         "debug_report_title": "=== ОТЧЕТ ПО ИСКЛЮЧЕНИЮ ТЕГОВ (ЗАПРОС: {}) ===\n",
         "debug_report_headers": f"{'НАЗВАНИЕ ТЕГА':<40} | {'ХУДОЖНИК?':<12} | {'КОЛ-ВО ПОСТОВ'}",
         "group_good": "💚 Годные",
@@ -388,6 +412,7 @@ TRANSLATIONS = {
         "err_save_tags": "Failed to save tags for {}: {}",
         "err_download": "Download error: {}",
         "gal_video_label": "▶ VIDEO",
+        "gal_last_viewed": "👁 Last viewed",
         "gal_video_hint": "Video file.\nPress Enter or the button below to open.",
         "gal_btn_open_video": "▶ Open video in player",
         "gal_err_load_img": "Error loading image:\n{}",
@@ -399,6 +424,16 @@ TRANSLATIONS = {
                       "1. Install from ollama.com\n"
                       "2. Open terminal and run: ollama run llama3\n"
                       "3. Wait for download, then click 'Run' here.",
+        "local_ai_title": "Built-in model",
+        "local_ai_msg": "This model (Qwen2.5 0.5B) runs offline right inside the app - no separate "
+                        "install and no API key needed.\n\n"
+                        "The first time you use it, the model file (~490 MB) is downloaded "
+                        "automatically, which can take a few minutes depending on your connection. "
+                        "After that it never downloads again and runs fully locally.\n\n"
+                        "The model only describes the style from your favorite artists' real content "
+                        "tags - the list of similar artists is found by searching the site itself for "
+                        "those same tags, not made up by the model (it has no way of actually knowing "
+                        "how specific booru usernames draw).",
         "log_all_excluded": "⚠️ All found artists were excluded by the filter.",
         "log_debug_saved": "🛠 Debug report saved to: {}",
         "err_debug_save": "Error saving debug log: {}",
@@ -409,6 +444,19 @@ TRANSLATIONS = {
         "ai_err_network": "Network Error: {}",
         "ai_err_api": "{} Error: {}",
         "ai_empty_history": "Artists history is empty. Add someone first!",
+        "ai_err_no_api_key": "This provider needs an API key - enter it in the field above.",
+        "ai_local_downloading": "Downloading built-in model: {} / {} MB ({}%)...",
+        "ai_local_loading": "Loading the model into memory...",
+        "ai_err_local_unavailable": "The built-in model isn't available in this build "
+                                    "(llama-cpp-python is not installed).",
+        "ai_err_local_download": "Failed to download the built-in model. Check your internet "
+                                 "connection and try again.",
+        "ai_finding_similar": "Looking for similar artists on the site...",
+        "ai_header_style": "Style:",
+        "ai_header_similar": "Similar artists found on the site (post count in parentheses):",
+        "ai_no_similar_found": "Couldn't find any new similar artists for these tags.",
+        "ai_no_profile_tags": "Not enough tag data to describe a style - your \"good\"-rated "
+                              "artists don't have any saved content tags yet.",
         "debug_report_title": "=== TAG EXCLUSION REPORT (QUERY: {}) ===\n",
         "debug_report_headers": f"{'TAG NAME':<40} | {'ARTIST?':<12} | {'POST COUNT'}",
         "group_good": "💚 Excellent",

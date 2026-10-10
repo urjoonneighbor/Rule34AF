@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import scrolledtext, ttk
 
+from src.core.ai import LOCAL_AI_PROVIDER
 from src.ui.gallery import GalleryTab
 
 
@@ -267,6 +268,8 @@ class LayoutMixin:
             getattr(self, "gal_base_dir", ""),
             getattr(self, "gal_artist_positions", {}),
             getattr(self, "gal_solo_only", False),
+            getattr(self, "gal_current_artist", ""),
+            initial_last_files=getattr(self, "gal_artist_last_files", {}),
         )
         self.notebook.add(self.tab_gallery, text="")
 
@@ -279,7 +282,7 @@ class LayoutMixin:
         self.lbl_ai_provider.grid(row=0, column=0, sticky=tk.W, pady=5, padx=5)
         self.ai_provider_combo = ttk.Combobox(self.ai_settings, textvariable=self.ai_provider_var, state="readonly",
                                               values=["Ollama (Локально)", "LM Studio (Локально)", "Gemini API",
-                                                      "OpenAI API", "Qwen API"],
+                                                      "OpenAI API", "Qwen API", LOCAL_AI_PROVIDER],
                                               font=self.font_main)
         self.ai_provider_combo.grid(row=0, column=1, sticky=tk.EW, pady=5, padx=5, columnspan=2)
         self.ai_provider_combo.bind("<<ComboboxSelected>>", self.on_ai_provider_change)
@@ -292,8 +295,8 @@ class LayoutMixin:
         self.btn_help_ai_keys.grid(row=1, column=2, padx=5, sticky=tk.W)
         self.lbl_ai_model = ttk.Label(self.ai_settings)
         self.lbl_ai_model.grid(row=2, column=0, sticky=tk.W, pady=5, padx=5)
-        ttk.Entry(self.ai_settings, textvariable=self.ai_model_var).grid(row=2, column=1, sticky=tk.EW, pady=5, padx=5,
-                                                                         columnspan=2)
+        self.ai_model_entry = ttk.Entry(self.ai_settings, textvariable=self.ai_model_var)
+        self.ai_model_entry.grid(row=2, column=1, sticky=tk.EW, pady=5, padx=5, columnspan=2)
         self.ai_settings.columnconfigure(1, weight=1)
 
         ai_controls = ttk.Frame(self.tab_ai)

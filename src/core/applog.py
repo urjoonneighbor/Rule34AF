@@ -7,6 +7,9 @@ import os
 import sys
 
 _logger: logging.Logger | None = None
+# Сколько последних дней хранить (файлы старше удаляются автоматически
+# самим TimedRotatingFileHandler'ом при очередной ротации).
+_LOG_RETENTION_DAYS = 14
 
 
 def _build_logger() -> logging.Logger:
@@ -22,8 +25,15 @@ def _build_logger() -> logging.Logger:
         from src.core.storage.paths import APP_LOG_FILENAME, get_app_data_dir
 
         log_path = os.path.join(get_app_data_dir(), APP_LOG_FILENAME)
-        handler = logging.handlers.RotatingFileHandler(
-            log_path, maxBytes=1_000_000, backupCount=2, encoding="utf-8"
+        # Ротация по дням (полночь), а не по размеру - раньше был
+        # RotatingFileHandler(maxBytes=1_000_000, backupCount=2), из-за чего
+        # один активный день мог полностью вытеснить весь предыдущий (даже
+        # интересный) лог, как только файл упирался в лимит размера. Теперь
+        # каждый день - свой файл (app.log.ГГГГ-ММ-ДД), логи за
+        # _LOG_RETENTION_DAYS последних дней хранятся, более старые
+        # TimedRotatingFileHandler удаляет сам.
+        handler = logging.handlers.TimedRotatingFileHandler(
+            log_path, when="midnight", backupCount=_LOG_RETENTION_DAYS, encoding="utf-8"
         )
     except OSError:
         handler = None

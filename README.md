@@ -12,14 +12,14 @@ A multi-threaded desktop application in Python (Tkinter) for smart search, analy
 ## 🌟 Key Features
 
 * **Smart Artist Search**: Scans thousands of posts using your tags and finds the artists who draw most frequently in that specific genre.
-* **Multiple API Support**: Works seamlessly with `Rule34.xxx`, `AllTheFallen.moe`, and `Rule34.paheal.net`.
+* **Multiple API Support**: Works seamlessly with `Rule34.xxx`, `allthefallen.moe`, and `Rule34.paheal.net`.
 * **Advanced Filters**:
   * Exclude AI-generated content (`ai_generated`).
   * Exclude `Questionable` rating.
   * Set limits for download counts and minimum required posts per artist.
 * **Multi-threaded Downloading (Queue)**: Downloads original, full-resolution images using several background threads (configurable in the "Network & Performance" section — see below). You can continue browsing and adding new artists to the queue on the fly.
 * **Rating System & Blacklists**: Rate artists (👍 Excellent / 👌 Average / 👎 Bad). "Bad" artists can be automatically skipped during mass downloads or permanently hidden from future searches.
-* **AI Analytics**: Built-in support for local LLMs (via Ollama) and cloud models (Gemini / OpenAI) to analyze your search history and suggest relevant, fresh tags.
+* **AI Analytics**: Built-in support for local LLMs (via Ollama or LM Studio), cloud models (Gemini / OpenAI / Qwen), and a **built-in local model** (Qwen2.5 0.5B) that needs no separate install, no API key, and no manual setup — it downloads once (~490 MB) on first use and then runs fully offline. All of these analyze your search history and suggest relevant, fresh tags.
 * **Encrypted credential storage**: Site API keys / User IDs are stored separately from the rest of the settings and, when the optional `keyring` and `cryptography` packages are installed, are genuinely *encrypted* using a per-machine key kept in your OS's secure credential store (Windows Credential Manager / macOS Keychain / Linux Secret Service). Without those packages installed, credentials fall back to plain base64 encoding (not real protection) and a warning is written to the log — see "Optional dependencies" below. Earlier versions described this as "secure storage" while only doing base64+zlib encoding, which is not actually secure; that has been corrected here both in code and in this description.
 * **Automatic update check**: On startup, the app optionally checks GitHub Releases in the background (toggle in Settings) and, if a newer version exists, offers to open its release page. It never downloads or replaces the running executable itself.
 * **Smoother zoom**: The image viewer zooms towards the mouse cursor (not just the canvas center) with an instant low-cost preview per scroll tick and a debounced high-quality resize computed off the UI thread, so large images no longer feel "jerky" while zooming.
@@ -41,7 +41,8 @@ rule34_project/
     ├── app.py                  # Main business logic and thread management
     ├── core/
     │   ├── api.py               # Booru API interactions (GET/HEAD requests)
-    │   ├── ai.py                 # LLM integration (Ollama, OpenAI, Gemini)
+    │   ├── ai.py                 # LLM integration (Ollama, LM Studio, OpenAI, Gemini, Qwen)
+    │   ├── local_ai.py           # Built-in local model (Qwen2.5 0.5B, downloads on first use)
     │   ├── config.py             # Settings load/save (+ credential migration)
     │   ├── downloader.py         # Download queue / worker threads
     │   ├── search_engine.py      # Artist-search worker
@@ -76,6 +77,14 @@ The `secure-storage` extra (`keyring` + `cryptography`) is needed for real encry
 pip install ".[secure-storage]"
 ```
 If, for some reason, you don't want them installed, the app still works with a plain `pip install .` — it just falls back to the old base64 encoding for credentials and logs a warning that this is not real protection.
+
+### Optional dependencies (built-in local AI model)
+
+The pre-built `.exe`/`.app`/binary releases from GitHub Releases already include everything needed for the **Qwen2.5 0.5B (built-in)** AI provider — no extra setup. Running from source needs the `local-ai` extra (`llama-cpp-python`), which isn't installed by a plain `pip install .` because PyPI doesn't publish ready-made wheels for it (a normal install would compile it from source, needing CMake and a C/C++ compiler). Install a pre-built CPU wheel instead:
+```bash
+pip install ".[local-ai]" --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+```
+Without it, every other AI provider (Ollama, LM Studio, the cloud APIs) still works as usual — only the built-in local model shows an error message telling you it's not available in this build.
 
 ## 📁 Where your data is stored
 

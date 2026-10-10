@@ -2,6 +2,18 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
+SEARCH_FOLDER_PREFIX = "🔍 Поиск:"
+
+
+def is_search_folder(name: str) -> bool:
+    return name.startswith(SEARCH_FOLDER_PREFIX)
+
+
+def visible_folder_items(name: str, items: list, marks: dict) -> list:
+    if not is_search_folder(name):
+        return items
+    return [item for item in items if not marks.get(str(item.get("artist", "")))]
+
 
 class HistoryMixin:
     """Дерево истории найденных авторов: фильтр, папки, оценки, экспорт,
@@ -9,7 +21,22 @@ class HistoryMixin:
 
     def update_history_tree(self, filter_text=""):
         if not hasattr(self, "history_tree") or not self.history_tree: return
-        self.history_tree.delete(*self.history_tree.get_children())
+
+        prev_children = self.history_tree.get_children("")
+        had_previous_state = bool(prev_children)
+        open_groups = {
+            self.history_tree.item(item_id, "text")
+            for item_id in prev_children
+            if self.history_tree.item(item_id, "open")
+        }
+        selected_artist_names = set()
+        for item_id in self.history_tree.selection():
+            vals = self.history_tree.item(item_id, "values")
+            if len(vals) >= 4 and vals[3]:
+                selected_artist_names.add(vals[3])
+        scroll_top = self.history_tree.yview()[0]
+
+        self.history_tree.delete(*prev_children)
         filter_text = filter_text.lower().strip()
 
         unique_artists = {}
@@ -41,8 +68,11 @@ class HistoryMixin:
                 render_data[f"__default__{g_name}"] = sorted(g_artists, key=lambda x: str(x.get("artist", "")).lower())
 
         for g_name, g_artists in self.grouped_history_data.items():
-            render_data[f"__history__{g_name}"] = g_artists
+            shown = visible_folder_items(g_name, g_artists, self.artist_marks)
+            if shown or not is_search_folder(g_name):
+                render_data[f"__history__{g_name}"] = shown
 
+        to_reselect = []
         for full_group_name, artists in render_data.items():
             filtered_artists = []
             for a in artists:
@@ -56,8 +86,10 @@ class HistoryMixin:
 
             if filtered_artists or (filter_text in display_group_name.lower()):
                 folder_icon = "⭐" if is_default else "📁"
-                parent_id = self.history_tree.insert("", tk.END, text=f"{folder_icon} {display_group_name}",
-                                                     values=(f"[{len(artists)} шт.]", "", "", ""), open=is_default)
+                group_text = f"{folder_icon} {display_group_name}"
+                is_open = (group_text in open_groups) if had_previous_state else is_default
+                parent_id = self.history_tree.insert("", tk.END, text=group_text,
+                                                     values=(f"[{len(artists)} шт.]", "", "", ""), open=is_open)
 
                 artists_to_show = filtered_artists if filtered_artists else artists
                 for a in artists_to_show:
@@ -80,8 +112,16 @@ class HistoryMixin:
                     # _get_selected_history_artists и т.п. Колонка site видна
                     # или скрыта через displaycolumns (см. toggle_hist_site_column) -
                     # само значение хранится всегда, независимо от переключателя.
-                    self.history_tree.insert(parent_id, tk.END, text=f"  👤 {artist_name}",
-                                             values=(count, mark_text, site_text, artist_name), tags=(tag_name,))
+                    row_id = self.history_tree.insert(parent_id, tk.END, text=f"  👤 {artist_name}",
+                                                      values=(count, mark_text, site_text, artist_name),
+                                                      tags=(tag_name,))
+                    if artist_name in selected_artist_names:
+                        to_reselect.append(row_id)
+
+        if to_reselect:
+            self.history_tree.selection_set(to_reselect)
+            self.history_tree.focus(to_reselect[0])
+        self.history_tree.yview_moveto(scroll_top)
 
         self.notebook.tab(self.tab_history, text=f"{self.tr('tab_history')} ({len(unique_artists)})")
 
@@ -142,9 +182,11 @@ class HistoryMixin:
                 menu.add_command(label=self.tr("menu_exclude_selected"), command=self.exclude_history_item)
                 
                 # --- Подменю для перемещения в папки ---
-                if self.grouped_history_data:
+                folders = [name for name, items in self.grouped_history_data.items()
+                           if visible_folder_items(name, items, self.artist_marks) or not is_search_folder(name)]
+                if folders:
                     move_menu = tk.Menu(menu, tearoff=0, font=self.font_main)
-                    for folder_name in self.grouped_history_data.keys():
+                    for folder_name in folders:
                         move_menu.add_command(label=folder_name, command=lambda f=folder_name: self.move_history_item(f))
                     menu.add_cascade(label=self.tr("menu_move_to"), menu=move_menu)
                 # ---------------------------------------
@@ -237,7 +279,7 @@ class HistoryMixin:
                     # Отрезаем иконку папки и пробел, чтобы получить чистое имя
                     group_name = text.split(" ", 1)[-1]
                     if group_name in self.grouped_history_data:
-                        del self.grouped_history_data[group_name]
+                        self._delete_history_folder(group_name)
 
         # Автоматически удаляем ТОЛЬКО пустые папки из поиска. 
         # Пустые пользовательские папки теперь остаются нетронутыми.
@@ -247,6 +289,15 @@ class HistoryMixin:
 
         self.update_history_tree(self.hist_search_var.get())
         self.save_settings()
+
+    def _delete_history_folder(self, name: str):
+        if is_search_folder(name):
+            rated = [item for item in self.grouped_history_data[name]
+                     if self.artist_marks.get(str(item.get("artist", "")))]
+            if rated:
+                self.grouped_history_data[name] = rated
+                return
+        del self.grouped_history_data[name]
 
     def export_history(self):
         items = self.history_tree.get_children()

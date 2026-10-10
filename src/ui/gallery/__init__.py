@@ -11,13 +11,19 @@ class GalleryTab(GridMixin, ViewerMixin, ttk.Frame):
     пагинацией (GridMixin, grid.py) и полноэкранный просмотрщик с зумом
     (ViewerMixin, viewer.py)."""
 
-    def __init__(self, notebook, app, initial_dir="", initial_positions=None, initial_solo_only=False):
+    def __init__(self, notebook, app, initial_dir="", initial_positions=None, initial_solo_only=False,
+                 initial_current_artist="", initial_last_files=None):
         super().__init__(notebook)
         self.viewer_img_id = None
         self.app = app
 
         self.gal_base_dir: str = initial_dir
         self.gal_current_artist: str = ""
+        # Имя автора, который был открыт при закрытии программы (см.
+        # ConfigManager) - применяется ПОСЛЕ create_widgets()/
+        # _refresh_gallery_artists() ниже, когда список авторов в
+        # listbox_gal_artists уже заполнен и есть что выбирать.
+        self._initial_current_artist: str = str(initial_current_artist or "")
         self.gal_artist_meta: dict = {}
         self.gal_filtered_files: list[str] = []
         self.gal_current_page: int = 1
@@ -38,6 +44,11 @@ class GalleryTab(GridMixin, ViewerMixin, ttk.Frame):
         # jump_to_gallery_index() в grid.py, вызывается при закрытии
         # полноэкранного просмотрщика.
         self._gal_pending_scroll_idx: int | None = None
+        self.gal_artist_last_files: dict[str, str] = (
+            dict(initial_last_files) if isinstance(initial_last_files, dict) else {}
+        )
+        self._gal_accent: str = "#1a73e8"
+        self._gal_save_timer = None
 
         self.gal_local_tags: set[str] = set()
         self.gal_auto_timer = None
@@ -91,6 +102,28 @@ class GalleryTab(GridMixin, ViewerMixin, ttk.Frame):
         self.create_widgets()
         if self.gal_base_dir:
             self._refresh_gallery_artists()
+            self._restore_initial_artist_selection()
 
         self.gal_last_folder_count = -1
         self._start_folder_polling()
+
+    def _restore_initial_artist_selection(self):
+        """Выбирает в списке автора, который был открыт при закрытии
+        программы, и открывает его сразу на сохранённой странице (см.
+        gal_artist_positions в grid.py). Без этого при каждом перезапуске
+        вкладка "Галерея" показывала пустой, невыбранный список авторов, и
+        сохранённые позиции страниц было попросту не к чему применить -
+        выглядело это так, будто программа вообще забыла, на чём
+        пользователь остановился, хотя сама позиция никуда не девалась.
+
+        Если сохранённой папки автора больше нет (переименовали, удалили) -
+        просто ничего не выбираем, как и при самом первом запуске."""
+        name = self._initial_current_artist
+        if not name:
+            return
+        for i in range(self.listbox_gal_artists.size()):
+            if self.listbox_gal_artists.get(i) == name:
+                self.listbox_gal_artists.selection_set(i)
+                self.listbox_gal_artists.see(i)
+                self.on_gal_artist_select(None)
+                return
